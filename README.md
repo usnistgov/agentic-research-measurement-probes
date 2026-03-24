@@ -1,6 +1,10 @@
 # Open Deep Research
 
-An open deep research tool that operates against a **local corpus of PDF and Markdown documents** rather than the open internet. Given a research question, it orchestrates a programmatic AI pipeline to exhaustively evaluate, synthesize, and verify information from your documents, producing a **Markdown report with inline footnote citations** referencing specific document chunks.
+An **agentic AI measurement tool** for deep research over **local corpora of PDF and Markdown documents**. Given a research question, it orchestrates a programmatic AI pipeline to exhaustively evaluate, synthesize, and verify information from your documents, producing a **Markdown report with inline footnote citations** -- then automatically measures the quality of every citation using **LM-judge measurement probes**.
+
+The probes are a first-class feature, not an afterthought. After each report section is written, three mutually exclusive probe evaluators run automatically, scoring every citation along distinct quality dimensions: **faithfulness** (does the source support the claim?), **completeness** (is the source's full message represented without cherry-picking?), and **sufficiency** (does the source carry the evidentiary burden the claim requires, or does the author overreach?). Probe results are stored alongside the report as a structured audit trail, enabling quantitative measurement of AI-generated research quality.
+
+This makes Open Deep Research useful not just as a research assistant, but as a **platform for AI measurement science** -- studying how well LLMs synthesize, cite, and represent evidence from a grounded document corpus.
 
 Built on the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python), it works with any OpenAI-compatible API endpoint (OpenAI, Ollama, vLLM, or other self-hosted model servers).
 
@@ -96,6 +100,8 @@ OpenAI credentials use the standard `OPENAI_API_KEY` and `OPENAI_BASE_URL` varia
 | `ODR_CHUNK_MIN_CHARS` | `2000` | Minimum characters before a section is emitted as its own chunk |
 | `ODR_CHUNK_MAX_CHARS` | `3000` | Maximum characters per chunk (triggers sliding window) |
 | `ODR_CHUNK_OVERLAP` | `200` | Character overlap between sliding window chunks |
+| `ODR_SEARCH_REASONING_EFFORT` | `low` | Reasoning effort for the exhaustive scanner (`low`, `medium`, `high`) |
+| `ODR_SYNTHESIS_REASONING_EFFORT` | `medium` | Reasoning effort for the manager, synthesis, and section writer agents (`low`, `medium`, `high`) |
 
 ### Example `.env` for OpenAI
 

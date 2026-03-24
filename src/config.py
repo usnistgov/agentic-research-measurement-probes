@@ -46,3 +46,9 @@ class Config:
     batch_size: int = field(
         default_factory=lambda: _env_int("ODR_BATCH_SIZE", 16)
     )
+    search_reasoning_effort: str = field(
+        default_factory=lambda: _env("ODR_SEARCH_REASONING_EFFORT", "low")
+    )
+    synthesis_reasoning_effort: str = field(
+        default_factory=lambda: _env("ODR_SYNTHESIS_REASONING_EFFORT", "medium")
+    )

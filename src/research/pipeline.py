@@ -18,9 +18,10 @@ from __future__ import annotations
 import json
 import re
 
-from agents import Model, Runner
-from pydantic import BaseModel, ValidationError, model_validator
+from agents import Runner, ModelSettings, RunConfig
+from openai.types.shared import Reasoning
 
+from config import Config
 from research.context import ResearchContext
 from research.exhaustive_scanner import exhaustive_scan
 from research.manager import create_manager_agent
@@ -30,69 +31,8 @@ from research.synthesis_agent import (
     create_synthesis_manager,
 )
 from research.tools import format_all_evidence, format_outline_md
-from models import ReportOutline, SectionPlan, SectionResult
+from models import SectionResult
 from probes import run_probes
-
-
-# ---------------------------------------------------------------------------
-# Pydantic models for fallback parsing of LLM text output
-# ---------------------------------------------------------------------------
-
-
-class _SubQuestionsPayload(BaseModel):
-    """Parses sub-questions from JSON the manager may emit as text."""
-
-    questions: list[str]
-
-    @model_validator(mode="before")
-    @classmethod
-    def _extract(cls, data):
-        if isinstance(data, list):
-            return {"questions": data}
-        if isinstance(data, dict):
-            for key in ("sub_questions", "sub-questions", "questions"):
-                if key in data and isinstance(data[key], list):
-                    return {"questions": data[key]}
-        raise ValueError("No sub-questions list found")
-
-
-class _RawSection(BaseModel):
-    """Lenient section schema that normalizes common key variants."""
-
-    section_title: str = ""
-    section_instructions: str = ""
-    citation_ids: list[int]
-    order: int = 0
-
-    @model_validator(mode="before")
-    @classmethod
-    def _normalize(cls, data):
-        if not isinstance(data, dict):
-            return data
-        # Accept "title" as alias for "section_title"
-        if "title" in data and "section_title" not in data:
-            data["section_title"] = data.pop("title")
-        # Accept "instructions" as alias for "section_instructions"
-        if "instructions" in data and "section_instructions" not in data:
-            data["section_instructions"] = data.pop("instructions")
-        return data
-
-
-class _OutlinePayload(BaseModel):
-    """Parses an outline from JSON the synthesis manager may emit as text."""
-
-    sections: list[_RawSection]
-
-    @model_validator(mode="before")
-    @classmethod
-    def _extract(cls, data):
-        if isinstance(data, list):
-            return {"sections": data}
-        if isinstance(data, dict):
-            for key in ("sections", "outline"):
-                if key in data and isinstance(data[key], list):
-                    return {"sections": data[key]}
-        raise ValueError("No sections list found")
 
 
 def build_model(context: ResearchContext) -> SanitizingModel:
@@ -115,7 +55,7 @@ async def run_research_pipeline(
     relevance_threshold: float = 0.5,
     batch_size: int = 4,
     prefilter: bool = False,
-    max_synthesis_turns: int = 4,
+    max_synthesis_turns: int = 10,
     all_evidence_per_section: bool = False,
     verbose: bool = False,
 ) -> str:
@@ -133,26 +73,12 @@ async def run_research_pipeline(
         input=question,
         context=context,
         max_turns=5,
+        run_config=RunConfig(model_settings=ModelSettings(temperature=0.2, reasoning=Reasoning(effort=Config().synthesis_reasoning_effort))),
     )
 
     sub_questions = context.state.sub_questions
     if not sub_questions:
-        # Fallback: parse sub-questions from text output
-        sub_questions = _parse_sub_questions(result.final_output)
-        context.state.sub_questions = sub_questions
-        print(
-            f"[pipeline] WARNING: Manager did not call submit_plan. "
-            f"Parsed {len(sub_questions)} sub-questions from text output."
-        )
-
-    if not sub_questions:
-        # Last resort: use the original question as the sole sub-question
-        sub_questions = [question]
-        context.state.sub_questions = sub_questions
-        print(
-            "[pipeline] WARNING: No sub-questions parsed. "
-            "Using the original question as the sole sub-question."
-        )
+        raise RuntimeError("Manager agent did not call submit_plan")
 
     if verbose:
         print(f"[pipeline] Sub-questions ({len(sub_questions)}):")
@@ -203,11 +129,12 @@ async def run_research_pipeline(
         input=outline_prompt,
         context=context,
         max_turns=max_synthesis_turns,
+        run_config=RunConfig(model_settings=ModelSettings(temperature=0.2, reasoning=Reasoning(effort=Config().synthesis_reasoning_effort))),
     )
 
     outline = context.state.report_outline
     if outline is None or not outline.sections:
-        raise RuntimeError("Agent failed to create report outline")
+        raise RuntimeError("Synthesis manager did not call submit_outline")
 
     # Write debug artifacts to index dir
     index_dir = context.infra.document_store.index_dir
@@ -259,6 +186,7 @@ async def run_research_pipeline(
             input=section_prompt,
             context=context,
             max_turns=3,
+            run_config=RunConfig(model_settings=ModelSettings(temperature=0.2, reasoning=Reasoning(effort=Config().synthesis_reasoning_effort))),
         )
 
         section_result = SectionResult(
@@ -350,81 +278,6 @@ def _extract_citation_ids(text):
     return sorted(set(int(m) for m in re.findall(r"\[\^(\d+)\]", text)))
 
 
-def _parse_outline(text, context):
-    """Try to parse an outline from text when the LLM didn't call submit_outline."""
-    all_citation_ids = context.infra.citation_tracker.all_citation_ids()
-
-    # Try JSON parsing
-    outline = _try_parse_outline_json(text, all_citation_ids)
-    if outline:
-        return outline
-
-    # Try parsing numbered/headed sections from text
-    sections = []
-    # Match patterns like "1. Title" or "## Title" or "**Title**"
-    section_patterns = [
-        re.compile(r"^\s*(\d+)\.\s*\*?\*?(.+?)\*?\*?\s*$", re.MULTILINE),
-        re.compile(r"^\s*#{1,3}\s+(.+?)\s*$", re.MULTILINE),
-    ]
-
-    for pattern in section_patterns:
-        matches = list(pattern.finditer(text))
-        if len(matches) >= 2:
-            for i, m in enumerate(matches):
-                title = m.group(m.lastindex).strip().strip("*")
-                sections.append(
-                    SectionPlan(
-                        section_title=title,
-                        section_instructions="",
-                        citation_ids=all_citation_ids,  # assign all citations as fallback
-                        order=i,
-                    )
-                )
-            break
-
-    if sections:
-        return ReportOutline(sections=sections)
-
-    return None
-
-
-def _try_parse_outline_json(text, all_citation_ids):
-    """Try to extract outline from JSON in text."""
-    # Try code blocks first
-    for m in re.finditer(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL):
-        result = _parse_outline_json_str(m.group(1), all_citation_ids)
-        if result:
-            return result
-
-    # Try whole text
-    return _parse_outline_json_str(text, all_citation_ids)
-
-
-def _parse_outline_json_str(text, all_citation_ids):
-    """Parse a JSON string into a ReportOutline using Pydantic validation."""
-    try:
-        payload = _OutlinePayload.model_validate_json(text.strip())
-    except (ValidationError, ValueError):
-        return None
-
-    known_ids = set(all_citation_ids)
-    sections = []
-    for i, raw in enumerate(payload.sections):
-        valid_ids = [cid for cid in raw.citation_ids if cid in known_ids]
-        sections.append(
-            SectionPlan(
-                section_title=raw.section_title or f"Section {i + 1}",
-                section_instructions=raw.section_instructions,
-                citation_ids=valid_ids,
-                order=raw.order if raw.order != 0 else i,
-            )
-        )
-
-    if sections:
-        return ReportOutline(sections=sections)
-    return None
-
-
 def _assemble_report(context, section_results):
     """Concatenate sections in order and append references."""
     parts = []
@@ -455,63 +308,3 @@ def _dump_context(context: ResearchContext, filename: str) -> None:
     print(f"[pipeline] Context snapshot written to {out_path}")
 
 
-def _parse_sub_questions(text: str) -> list[str]:
-    """Best-effort extraction of sub-questions from manager text output.
-
-    Handles several formats local models produce:
-      - Raw JSON with a "sub_questions" key
-      - JSON embedded in markdown code blocks
-      - Numbered/bulleted lists
-      - Markdown table rows
-    """
-    # --- Try JSON parsing first (model may output the tool call as text) ---
-    questions = _try_parse_json(text)
-    if questions:
-        return questions
-
-    # --- Try numbered list patterns: "1. ...", "1) ...", "- ..." ---
-    questions = []
-    for line in text.splitlines():
-        line = line.strip()
-        m = re.match(r"^(?:\d+[\.\)]\s*|[-*]\s+)(.*\?)\s*$", line)
-        if m:
-            questions.append(m.group(1).strip())
-    if questions:
-        return questions
-
-    # --- Try bold patterns from markdown tables ---
-    for m in re.finditer(r"\*\*[^*]+\*\*[:\s]*([^|]+\?)", text):
-        questions.append(m.group(1).strip())
-
-    return questions
-
-
-def _try_parse_json(text: str) -> list[str]:
-    """Try to extract sub_questions from JSON in the text."""
-    # Try the whole text as JSON
-    parsed = _safe_json(text)
-    if parsed:
-        return parsed
-
-    # Try extracting JSON from markdown code blocks
-    for m in re.finditer(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL):
-        parsed = _safe_json(m.group(1))
-        if parsed:
-            return parsed
-
-    # Try extracting any JSON object in the text
-    for m in re.finditer(r"\{[^{}]*\"sub_questions\"[^{}]*\[.*?\][^{}]*\}", text, re.DOTALL):
-        parsed = _safe_json(m.group(0))
-        if parsed:
-            return parsed
-
-    return []
-
-
-def _safe_json(text: str) -> list[str]:
-    """Parse text as JSON and extract a list of sub-question strings."""
-    try:
-        payload = _SubQuestionsPayload.model_validate_json(text.strip())
-        return payload.questions
-    except (ValidationError, ValueError):
-        return []

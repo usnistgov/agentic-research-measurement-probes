@@ -22,6 +22,8 @@ from models import (
     ScanResult,
 )
 
+from config import Config
+
 if TYPE_CHECKING:
     from research.context import ResearchContext
     from models import Chunk
@@ -98,6 +100,7 @@ async def _evaluate_chunk(
                     {"role": "user", "content": _user_prompt(chunk, questions)},
                 ],
                 temperature=0.0,
+                reasoning_effort=Config().search_reasoning_effort,
                 response_format=_ChunkRelevanceResponse,
             )
 

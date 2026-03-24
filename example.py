@@ -71,7 +71,7 @@ async def main() -> None:
         verbose=verbose,
         prefilter=True,
         batch_size=config.batch_size,
-        relevance_threshold=config.relevance_threshold,
+        relevance_threshold=0.5,
     )
 
     Path("report.md").write_text(report, encoding="utf-8")
