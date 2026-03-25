@@ -17,6 +17,9 @@ from __future__ import annotations
 
 import json
 import re
+import time
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from agents import Runner, ModelSettings, RunConfig
 from openai.types.shared import Reasoning
@@ -58,12 +61,31 @@ async def run_research_pipeline(
     max_synthesis_turns: int = 10,
     all_evidence_per_section: bool = False,
     verbose: bool = False,
+    on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> str:
-    """Run the full research pipeline and return the final Markdown report."""
+    """Run the full research pipeline and return the final Markdown report.
+
+    Args:
+        question: The research question.
+        context: The research context.
+        relevance_threshold: Minimum relevance score for a chunk to be considered relevant.
+        batch_size: Concurrency limit for exhaustive scanner LLM calls.
+        prefilter: Whether to use BM25 prefilter to reduce chunks before LLM evaluation.
+            Keeps chunks with BM25 score >= corpus mean score (adaptive threshold).
+        max_synthesis_turns: Max agent turns for the synthesis manager.
+        all_evidence_per_section: When True, gives every section writer all evidence.
+        verbose: Whether to print progress messages.
+        on_event: Optional async callback for pipeline events.
+    """
+
+    async def emit(event_type: str, stage: str, data: dict[str, Any] | None = None) -> None:
+        if on_event is not None:
+            await on_event({"type": event_type, "stage": stage, "timestamp": time.time(), "data": data or {}})
 
     model = build_model(context)
 
     # --- Step 1: Decompose question into sub-questions ---
+    await emit("stage_start", "manager", {"question": question})
     if verbose:
         print("[pipeline] Step 1: Decomposing research question...")
 
@@ -80,14 +102,23 @@ async def run_research_pipeline(
     if not sub_questions:
         raise RuntimeError("Manager agent did not call submit_plan")
 
+    await emit("stage_complete", "manager", {"sub_questions": sub_questions})
+
     if verbose:
         print(f"[pipeline] Sub-questions ({len(sub_questions)}):")
         for i, sq in enumerate(sub_questions, 1):
             print(f"  {i}. {sq}")
 
     # --- Step 2: Exhaustive relevance scan ---
+    await emit("stage_start", "scanner", {"total_chunks": len(context.infra.document_store.all_chunks()), "num_questions": len(sub_questions)})
     if verbose:
         print("\n[pipeline] Step 2: Exhaustive corpus scan...")
+
+    async def _scanner_progress(completed: int, total: int, relevant: int) -> None:
+        await emit("scanner_progress", "scanner", {"completed": completed, "total": total, "relevant_so_far": relevant})
+
+    async def _scanner_prefilter(kept: int, total: int) -> None:
+        await emit("scanner_prefilter", "scanner", {"kept": kept, "total": total})
 
     scan_result = await exhaustive_scan(
         context,
@@ -96,7 +127,11 @@ async def run_research_pipeline(
         batch_size=batch_size,
         prefilter=prefilter,
         verbose=verbose,
+        on_progress=_scanner_progress if on_event else None,
+        on_prefilter=_scanner_prefilter if on_event else None,
     )
+
+    await emit("stage_complete", "scanner", {"total_chunks": scan_result.total_chunks, "relevant_count": scan_result.relevant_count, "evidence_count": scan_result.evidence_count})
 
     if verbose:
         print(
@@ -109,6 +144,7 @@ async def run_research_pipeline(
     _dump_context(context, "context_state.json")
 
     # --- Step 3a: Plan the report outline ---
+    await emit("stage_start", "synthesis_manager")
     if verbose:
         print("\n[pipeline] Step 3a: Planning report outline...")
 
@@ -136,6 +172,8 @@ async def run_research_pipeline(
     if outline is None or not outline.sections:
         raise RuntimeError("Synthesis manager did not call submit_outline")
 
+    await emit("stage_complete", "synthesis_manager", {"num_sections": len(outline.sections), "sections": [s.section_title for s in outline.sections]})
+
     # Write debug artifacts to index dir
     index_dir = context.infra.document_store.index_dir
     (index_dir / "all_evidence.md").write_text(
@@ -161,6 +199,7 @@ async def run_research_pipeline(
     section_results: list[SectionResult] = []
 
     for section_plan in sorted(outline.sections, key=lambda s: s.order):
+        await emit("section_start", "section_writer", {"section_title": section_plan.section_title, "order": section_plan.order, "total_sections": len(outline.sections)})
         if verbose:
             print(f"  Writing: {section_plan.section_title}")
 
@@ -195,8 +234,10 @@ async def run_research_pipeline(
             citations_used=_extract_citation_ids(result.final_output),
             order=section_plan.order,
         )
+        await emit("section_complete", "section_writer", {"section_title": section_plan.section_title, "order": section_plan.order, "citations_used": section_result.citations_used})
 
         # ============ MEASUREMENT PROBE HOOK ============
+        await emit("probe_start", "probes", {"section_title": section_plan.section_title})
         section_result = await run_probes(
             section_result, section_findings, context
         )
@@ -206,6 +247,7 @@ async def run_research_pipeline(
                 checked = probe_result.get("summary", {}).get("num_citations_checked", 0)
                 mean_score = probe_result.get("mean_score", 0.0)
                 print(f"      Probe: {checked} citations checked. mean {probe_name}={mean_score:.2f}")
+        await emit("probe_complete", "probes", {"section_title": section_plan.section_title, "results": section_result.probe_results})
         # ================================================
 
         section_results.append(section_result)
@@ -213,10 +255,12 @@ async def run_research_pipeline(
     context.state.section_results = section_results
 
     # --- Step 3c: Assemble final report ---
+    await emit("stage_start", "assembly")
     if verbose:
         print("\n[pipeline] Step 3c: Assembling final report...")
 
     report = _assemble_report(context, section_results)
+    await emit("stage_complete", "assembly", {"report_length": len(report)})
 
     _dump_context(context, "context_state.json")
 

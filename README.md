@@ -240,6 +240,27 @@ Three probes are implemented, covering mutually exclusive dimensions of citation
 
 Probe results are stored on `SectionResult.probe_results` (keyed by probe name) and serialized to `context_state.json` as part of the audit trail.
 
+## Web Demo
+
+A browser-based visualization shows each pipeline stage as a rectangle that glows when active, with animated connector arrows and a live event log.
+
+### Running the demo
+
+```shell
+python demo/server.py
+# Open http://localhost:8765
+```
+
+Enter a research question and the path to a corpus directory, then click **Run Pipeline**. The UI updates in real time as each stage executes:
+
+- **Stage rectangles** start dimmed; they glow blue while active and turn green when complete.
+- **Connector arrows** animate with flowing dashes as data passes between stages.
+- **Scanner progress bar** fills live as corpus chunks are evaluated.
+- **Section mini-cards** cycle through states: pending → writing (blue) → probing (yellow) → done (green), with color-coded probe score badges (green ≥ 0.7, yellow ≥ 0.4, red < 0.4).
+- **Event log** (right panel) streams every pipeline event with timestamps.
+
+The demo server broadcasts pipeline events over a WebSocket using `aiohttp`. The frontend is vanilla HTML/CSS/JS with no build step.
+
 ## Project Structure
 
 ```
@@ -272,6 +293,12 @@ src/
     _extract.py           # Citation extraction utilities
     _prompts.py           # Probe prompt templates
 example.py               # Single entry point: ingest + research
+demo/
+  server.py               # aiohttp WebSocket server for the web demo
+  static/
+    index.html            # Pipeline visualization UI
+    style.css             # Dark-theme styles
+    app.js                # WebSocket client and stage state management
 scripts/
   docling_converter.py    # Standalone PDF-to-Markdown converter
 ```

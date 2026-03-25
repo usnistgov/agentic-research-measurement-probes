@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Open Deep Research - Pipeline Visualization</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Open Deep Research Pipeline</h1>
+    <p class="subtitle">Real-time visualization of the agentic research workflow</p>
+  </header>
+
+  <div class="layout">
+    <div class="pipeline-column">
+      <!-- Input form -->
+      <form id="run-form">
+        <div class="form-row">
+          <label for="question">Question</label>
+          <textarea id="question" rows="4" required>Analyze the architectural requirements and scalability of in memory computing for data-intensive applications. Specifically, evaluate how modern memory management techniques enable the processing of massive datasets entirely within RAM, and identify existing enterprise technologies that implement this model.</textarea>
+        </div>
+        <div class="form-row">
+          <label for="corpus-dir">Corpus dir</label>
+          <input type="text" id="corpus-dir" placeholder="Corpus directory path..." required value="./example-corpus">
+        </div>
+        <div class="form-row">
+          <label for="model">Model</label>
+          <input type="text" id="model" placeholder="Loading...">
+        </div>
+        <div class="form-submit">
+          <button type="submit" id="run-btn">Run Pipeline</button>
+        </div>
+      </form>
+
+      <!-- Pipeline stages -->
+      <div class="pipeline">
+        <!-- Manager -->
+        <div class="stage pending" data-stage="manager">
+          <div class="stage-header">
+            <span class="stage-icon">1</span>
+            <h2>Manager Agent</h2>
+          </div>
+          <p class="stage-desc">Decomposes the research question into focused sub-questions</p>
+          <div class="stage-detail" id="manager-detail"></div>
+        </div>
+
+        <div class="connector" data-connector="manager-scanner">
+          <svg width="4" height="40"><line x1="2" y1="0" x2="2" y2="40" stroke="#444" stroke-width="2" stroke-dasharray="6 4"/></svg>
+        </div>
+
+        <!-- Scanner -->
+        <div class="stage pending" data-stage="scanner">
+          <div class="stage-header">
+            <span class="stage-icon">2</span>
+            <h2>Exhaustive Scanner</h2>
+          </div>
+          <p class="stage-desc">Evaluates every corpus chunk against all sub-questions</p>
+          <div class="progress-container" id="scanner-progress" style="display:none">
+            <span class="prefilter-note" id="scanner-prefilter-note"></span>
+            <div class="progress-bar"><div class="progress-fill" id="scanner-fill"></div></div>
+            <span class="progress-text" id="scanner-text">0 / 0 chunks</span>
+          </div>
+          <div class="stage-detail" id="scanner-detail"></div>
+        </div>
+
+        <div class="connector" data-connector="scanner-synthesis">
+          <svg width="4" height="40"><line x1="2" y1="0" x2="2" y2="40" stroke="#444" stroke-width="2" stroke-dasharray="6 4"/></svg>
+        </div>
+
+        <!-- Synthesis Manager -->
+        <div class="stage pending" data-stage="synthesis_manager">
+          <div class="stage-header">
+            <span class="stage-icon">3a</span>
+            <h2>Synthesis Manager</h2>
+          </div>
+          <p class="stage-desc">Plans the report outline and assigns citations to sections</p>
+          <div class="stage-detail" id="synthesis_manager-detail"></div>
+        </div>
+
+        <div class="connector" data-connector="synthesis-writer">
+          <svg width="4" height="40"><line x1="2" y1="0" x2="2" y2="40" stroke="#444" stroke-width="2" stroke-dasharray="6 4"/></svg>
+        </div>
+
+        <!-- Section Writer -->
+        <div class="stage pending" data-stage="section_writer">
+          <div class="stage-header">
+            <span class="stage-icon">3b</span>
+            <h2>Section Writer</h2>
+          </div>
+          <p class="stage-desc">Writes each report section with assigned evidence</p>
+          <div class="section-cards" id="section-cards"></div>
+        </div>
+
+        <div class="connector" data-connector="writer-probes">
+          <svg width="4" height="40"><line x1="2" y1="0" x2="2" y2="40" stroke="#444" stroke-width="2" stroke-dasharray="6 4"/></svg>
+        </div>
+
+        <!-- Measurement Probes -->
+        <div class="stage pending" data-stage="probes">
+          <div class="stage-header">
+            <span class="stage-icon">P</span>
+            <h2>Measurement Probes</h2>
+          </div>
+          <p class="stage-desc">LM-judge evaluators: Faithfulness, Completeness, Sufficiency</p>
+          <div class="stage-detail" id="probes-detail"></div>
+        </div>
+
+        <div class="connector" data-connector="probes-assembly">
+          <svg width="4" height="40"><line x1="2" y1="0" x2="2" y2="40" stroke="#444" stroke-width="2" stroke-dasharray="6 4"/></svg>
+        </div>
+
+        <!-- Assembly -->
+        <div class="stage pending" data-stage="assembly">
+          <div class="stage-header">
+            <span class="stage-icon">3c</span>
+            <h2>Assembly</h2>
+          </div>
+          <p class="stage-desc">Concatenates sections and appends references</p>
+          <div class="stage-detail" id="assembly-detail"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="log-column">
+      <h2>Event Log</h2>
+      <div id="log-panel"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

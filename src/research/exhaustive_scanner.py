@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
@@ -138,9 +139,6 @@ async def _evaluate_chunk(
 # BM25 prefilter
 # ---------------------------------------------------------------------------
 
-_PREFILTER_KEEP_FRACTION = 0.1  # keep top N% of chunks by BM25 score
-
-
 def _tokenize(text: str) -> list[str]:
     """Lowercase split on non-alphanumeric, filter short tokens."""
     tokens = re.split(r"[^a-z0-9]+", text.lower())
@@ -152,8 +150,22 @@ def _prefilter_chunks(
     questions: list[str],
     verbose: bool,
 ) -> list["Chunk"]:
-    """Keep the top fraction of chunks by max BM25 score across all questions.
+    """Keep chunks with a positive BM25 score at or above the mean of positive scorers.
 
+    BM25 scores are right-skewed with a spike at zero: chunks sharing no tokens
+    with the query score exactly 0 and are clearly irrelevant.  Using a global
+    mean or median is unreliable because a majority-zero distribution collapses
+    the median to zero (keeping everything) and inflates the mean via outliers.
+
+    Instead we use a two-step threshold:
+      1. Drop score-zero chunks (no query-term overlap at all).
+      2. Of the remaining positive-scoring chunks, keep those >= mean + 1σ.
+
+    Mean + 1σ keeps only chunks that are genuinely above the pack (~16% of
+    positive scorers for a normal distribution, typically fewer for the
+    right-skewed BM25 distribution).  Falls back to mean alone if the positive
+    scores are so tightly clustered that mean+1σ would return nothing.
+    Adaptive to the corpus and query; no fixed hyperparameter.
     Uses a lightweight in-process BM25 so no API calls are needed.
     """
     from rank_bm25 import BM25Okapi
@@ -161,7 +173,6 @@ def _prefilter_chunks(
     corpus = [_tokenize(c.text) for c in chunks]
     bm25 = BM25Okapi(corpus)
 
-    # Score each chunk as the max BM25 score it achieves across all questions
     max_scores = [0.0] * len(chunks)
     for q in questions:
         scores = bm25.get_scores(_tokenize(q))
@@ -169,16 +180,26 @@ def _prefilter_chunks(
             if s > max_scores[i]:
                 max_scores[i] = s
 
-    keep_n = max(1, int(len(chunks) * _PREFILTER_KEEP_FRACTION))
-    # Argsort descending, take top keep_n
-    ranked = sorted(range(len(chunks)), key=lambda i: max_scores[i], reverse=True)
-    keep_set = set(ranked[:keep_n])
-    kept = [c for i, c in enumerate(chunks) if i in keep_set]
+    positive_scores = [s for s in max_scores if s > 0.0]
+    if not positive_scores:
+        return chunks  # no query-term overlap anywhere; pass everything through
+
+    mean_positive = sum(positive_scores) / len(positive_scores)
+    variance = sum((s - mean_positive) ** 2 for s in positive_scores) / len(positive_scores)
+    std_positive = variance ** 0.5
+    threshold = mean_positive + std_positive
+
+    kept = [c for i, c in enumerate(chunks) if max_scores[i] >= threshold]
+
+    if not kept:
+        # Degenerate case: all positive scorers are tightly clustered; fall back to mean
+        kept = [c for i, c in enumerate(chunks) if max_scores[i] >= mean_positive]
+        threshold = mean_positive
 
     if verbose:
         print(
-            f"[scanner] BM25 prefilter kept {len(kept)}/{len(chunks)} chunks"
-            f" (top {_PREFILTER_KEEP_FRACTION:.0%} by score)"
+            f"[scanner] BM25 prefilter: {len(positive_scores)}/{len(chunks)} chunks had "
+            f"positive score; kept {len(kept)} with score >= mean+1σ ({threshold:.3f})"
         )
 
     return kept
@@ -196,6 +217,8 @@ async def exhaustive_scan(
     batch_size: int = 32,
     prefilter: bool = False,
     verbose: bool = False,
+    on_progress: Callable[[int, int, int], Awaitable[None]] | None = None,
+    on_prefilter: Callable[[int, int], Awaitable[None]] | None = None,
 ) -> ScanResult:
     """Scan every corpus chunk against all questions and record evidence.
 
@@ -217,7 +240,10 @@ async def exhaustive_scan(
     all_chunks = context.infra.document_store.all_chunks()
 
     if prefilter:
+        total_before = len(all_chunks)
         all_chunks = _prefilter_chunks(all_chunks, questions, verbose)
+        if on_prefilter is not None:
+            await on_prefilter(len(all_chunks), total_before)
 
     if verbose:
         print(
@@ -233,9 +259,26 @@ async def exhaustive_scan(
         )
         for chunk in all_chunks
     ]
-    results: list[list[ChunkRelevanceJudgment]] = await tqdm.gather(
-        *tasks, desc="Scanning chunks", unit="chunk"
-    )
+    if on_progress is not None:
+        completed_count = 0
+        results_by_index: list[list[ChunkRelevanceJudgment] | None] = [None] * len(tasks)
+
+        async def _tracked(index: int, coro):
+            nonlocal completed_count
+            result = await coro
+            results_by_index[index] = result
+            completed_count += 1
+            if completed_count % 5 == 0 or completed_count == len(tasks):
+                relevant_so_far = sum(1 for r in results_by_index if r is not None for j in r if j.is_relevant)
+                await on_progress(completed_count, len(tasks), relevant_so_far)
+            return result
+
+        await asyncio.gather(*[_tracked(i, t) for i, t in enumerate(tasks)])
+        results: list[list[ChunkRelevanceJudgment]] = [r for r in results_by_index if r is not None]
+    else:
+        results: list[list[ChunkRelevanceJudgment]] = await tqdm.gather(
+            *tasks, desc="Scanning chunks", unit="chunk"
+        )
 
     # Flatten and persist all judgments
     all_judgments: list[ChunkRelevanceJudgment] = [j for chunk_js in results for j in chunk_js]
