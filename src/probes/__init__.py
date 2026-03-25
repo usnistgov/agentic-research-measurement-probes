@@ -67,6 +67,12 @@ async def run_probes(
         result = await probe_func(section_result, section_evidence, context, on_progress=_progress if on_probe_event else None)
         section_result.probe_results[result.probe_name] = result.model_dump()
         if on_probe_event:
-            await on_probe_event("probe_metric_complete", {"probe_name": probe_name, "section_title": section_result.section_title, "mean_score": result.mean_score})
+            # Find the first verdict that isn't a perfect 1.0 score
+            first_failure = None
+            for v in result.verdicts:
+                if v.score < 1.0:
+                    first_failure = {"verdict": v.verdict, "score": v.score, "rationale": v.rationale}
+                    break
+            await on_probe_event("probe_metric_complete", {"probe_name": probe_name, "section_title": section_result.section_title, "mean_score": result.mean_score, "first_failure": first_failure})
 
     return section_result

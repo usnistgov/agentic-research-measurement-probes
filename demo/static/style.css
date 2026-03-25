@@ -30,7 +30,7 @@ header .subtitle { font-size: 0.85rem; color: #8b949e; margin-top: 4px; }
   border-right: 3px solid #30363d;
   padding-right: 24px;
 }
-.log-column {
+.probes-column {
   flex: 2;
   min-width: 0;
   position: sticky;
@@ -39,12 +39,18 @@ header .subtitle { font-size: 0.85rem; color: #8b949e; margin-top: 4px; }
   max-height: calc(100vh - 120px);
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
 }
-.log-column h2 {
+.probes-column h2 {
   font-size: 1rem;
   color: #8b949e;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   flex-shrink: 0;
+}
+.probes-subtitle {
+  font-size: 0.8rem;
+  color: #484f58;
+  margin-bottom: 12px;
 }
 
 /* ---- Form ---- */
@@ -435,8 +441,7 @@ header .subtitle { font-size: 0.85rem; color: #8b949e; margin-top: 4px; }
 /* ---- Probe metrics (inside probe groups) ---- */
 .probe-metric {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
   padding: 6px 10px 6px 20px;
   border-bottom: 1px solid #21262d;
   background: #0d1117;
@@ -456,6 +461,12 @@ header .subtitle { font-size: 0.85rem; color: #8b949e; margin-top: 4px; }
 .probe-metric.completed {
   opacity: 1;
   border-color: #3fb950;
+}
+
+.probe-metric-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .probe-metric-icon {
@@ -487,35 +498,13 @@ header .subtitle { font-size: 0.85rem; color: #8b949e; margin-top: 4px; }
 .probe-metric.completed .probe-metric-name { color: #c9d1d9; }
 
 .probe-metric-progress {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  /* Container for failure detail, shown after probe completes */
+}
+
+.probe-metric-count {
+  font-size: 0.7rem;
+  color: #484f58;
   flex-shrink: 0;
-}
-
-.probe-progress-bar {
-  width: 60px;
-  height: 6px;
-  background: #21262d;
-  border-radius: 3px;
-  overflow: hidden;
-}
-.probe-progress-fill {
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(90deg, #d29922, #e3b341);
-  border-radius: 3px;
-  transition: width 0.3s ease;
-}
-.probe-metric.completed .probe-progress-fill {
-  background: linear-gradient(90deg, #3fb950, #56d364);
-}
-
-.probe-progress-text {
-  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
-  font-size: 0.65rem;
-  color: #8b949e;
-  min-width: 30px;
 }
 
 .probe-metric-score {
@@ -527,13 +516,40 @@ header .subtitle { font-size: 0.85rem; color: #8b949e; margin-top: 4px; }
   text-align: right;
 }
 
+/* ---- Probe failure detail ---- */
+.probe-failure-detail {
+  margin-top: 4px;
+  padding: 5px 8px;
+  background: #161b22;
+  border-left: 3px solid #f85149;
+  border-radius: 0 4px 4px 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.probe-failure-verdict {
+  display: block;
+  font-weight: 700;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 2px;
+}
+
+.probe-failure-rationale {
+  display: block;
+  color: #8b949e;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 /* ---- Per-section probe groups ---- */
 .probe-section-groups {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 10px;
-  margin-left: 38px;
 }
 
 .probe-group {
@@ -583,26 +599,27 @@ header .subtitle { font-size: 0.85rem; color: #8b949e; margin-top: 4px; }
   flex-direction: column;
 }
 
-/* ---- Log panel ---- */
-#log-panel {
-  flex: 1;
-  overflow-y: auto;
-  background: #161b22;
-  border: 1px solid #21262d;
-  border-radius: 8px;
-  padding: 12px;
-  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
-  font-size: 0.75rem;
-  line-height: 1.6;
+/* ---- Connection lines overlay ---- */
+.connection-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 10;
 }
-.log-entry {
-  padding: 2px 0;
-  border-bottom: 1px solid #21262d;
+
+.connection-line {
+  fill: none;
+  stroke: #58a6ff;
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  filter: drop-shadow(0 0 4px rgba(88, 166, 255, 0.6)) drop-shadow(0 0 10px rgba(88, 166, 255, 0.3));
+  animation: flow-line 0.8s linear infinite;
 }
-.log-entry:last-child { border-bottom: none; }
-.log-time { color: #484f58; }
-.log-type { font-weight: 600; }
-.log-type.start { color: #58a6ff; }
-.log-type.complete { color: #3fb950; }
-.log-type.progress { color: #d29922; }
-.log-type.error { color: #f85149; }
+
+@keyframes flow-line {
+  from { stroke-dashoffset: 20; }
+  to { stroke-dashoffset: 0; }
+}

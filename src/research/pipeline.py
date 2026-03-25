@@ -240,7 +240,7 @@ async def run_research_pipeline(
             print(f"    Section '{section_plan.section_title}' written. Starting measurement probes...")
 
         # ============ MEASUREMENT PROBE HOOK ============
-        await emit("probe_start", "probes", {"section_title": section_plan.section_title})
+        await emit("probe_start", "probes", {"section_title": section_plan.section_title, "order": section_plan.order})
 
         async def _probe_event(event_type: str, data: dict) -> None:
             await emit(event_type, "probes", data)

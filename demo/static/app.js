@@ -4,60 +4,14 @@ let ws = null;
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
 
-  ws.onopen = () => appendLog("system", "Connected to server");
-  ws.onclose = () => appendLog("system", "Disconnected from server");
-  ws.onerror = () => appendLog("error", "WebSocket error");
+  ws.onopen = () => {};
+  ws.onclose = () => {};
+  ws.onerror = () => {};
 
   ws.onmessage = (evt) => {
     const event = JSON.parse(evt.data);
     dispatch(event);
   };
-}
-
-// ---- Event summary formatter ----
-function summarize(type, stage, data) {
-  switch (type) {
-    case "stage_start":
-      switch (stage) {
-        case "manager":           return "Manager: decomposing question into sub-questions";
-        case "scanner":           return `Scanner: evaluating ${data.total_chunks} chunks × ${data.num_questions} questions`;
-        case "synthesis_manager": return "Synthesis manager: planning report outline";
-        case "assembly":          return "Assembly: building final report";
-        default:                  return `${stage}: starting`;
-      }
-    case "stage_complete":
-      switch (stage) {
-        case "manager":           return `Manager done: ${data.sub_questions?.length ?? "?"} sub-questions`;
-        case "scanner":           return `Scanner done: ${data.relevant_count} relevant → ${data.evidence_count} evidence items`;
-        case "synthesis_manager": return `Outline ready: ${data.num_sections} sections`;
-        case "assembly":          return `Report assembled (${((data.report_length || 0) / 1000).toFixed(1)}k chars)`;
-        default:                  return `${stage}: complete`;
-      }
-    case "section_start":
-      return `Writing section ${data.order}/${data.total_sections}: ${data.section_title}`;
-    case "section_complete":
-      return `Section done: "${data.section_title}" (${data.citations_used?.length ?? 0} citations)`;
-    case "probe_start":
-      return `Probing: "${data.section_title}"`;
-    case "probe_metric_start":
-      return `  Running ${data.probe_name} probe on "${data.section_title}" (${data.total_citations} citations)`;
-    case "probe_metric_complete":
-      return `  ${data.probe_name}: ${(data.mean_score || 0).toFixed(2)}`;
-    case "probe_complete": {
-      const scores = Object.entries(data.results || {})
-        .map(([name, r]) => `${name.replace("run_", "").replace("_probe", "")}: ${(r.mean_score || 0).toFixed(2)}`)
-        .join(", ");
-      return `Probes done: "${data.section_title}"${scores ? " — " + scores : ""}`;
-    }
-    case "scanner_progress":
-      return `Scanner: ${data.completed}/${data.total} chunks (${data.relevant_so_far} relevant)`;
-    case "pipeline_complete":
-      return "Pipeline complete";
-    case "error":
-      return `Error: ${data.message || "unknown"}`;
-    default:
-      return `${stage}: ${type}`;
-  }
 }
 
 // ---- Event dispatcher ----
@@ -79,19 +33,19 @@ function dispatch(event) {
 
   if (type === "scanner_progress") {
     updateScannerProgress(data.completed, data.total, data.relevant_so_far);
-    if (data.completed % 25 === 0 || data.completed === data.total) {
-      appendLog(type, summarize(type, stage, data));
-    }
     return;
   }
 
-  if (type === "probe_metric_progress") return;
-
-  appendLog(type, summarize(type, stage, data || {}));
+  if (type === "probe_metric_progress") {
+    updateProbeMetricProgress(data.section_title, data.probe_name, data.completed, data.total);
+    return;
+  }
 
   switch (type) {
     case "stage_start":
-      if (stage === "assembly") completeStage("probes", {});
+      if (stage === "assembly") {
+        // All probes are done when assembly starts
+      }
       activateStage(stage);
       if (stage === "scanner" && data.total_chunks) {
         const prog = document.getElementById("scanner-progress");
@@ -111,37 +65,34 @@ function dispatch(event) {
 
     case "section_start":
       activateSectionWriterStage(data.order);
-      waitStage("probes");
       scrollToActive(document.querySelector(`.section-writer-stage[data-section-order="${data.order}"]`));
       break;
 
     case "section_complete":
       completeSectionWriterStage(data.order);
-      animateConnector("writer-probes");
       break;
 
     case "probe_start":
       probeCount++;
-      if (probeCount === 1) activateStage("probes");
-      else pulseActive("probes");
-      addProbeSectionGroup(data.section_title);
+      addProbeSectionGroup(data.section_title, data.order);
+      drawConnectionLine(data.order, data.section_title);
       scrollToActive(document.querySelector(`.probe-group[data-title="${CSS.escape(data.section_title)}"]`));
       break;
 
     case "probe_metric_start":
       activateProbeMetric(data.section_title, data.probe_name, data.total_citations);
-      break;
-
-    case "probe_metric_progress":
-      updateProbeMetricProgress(data.section_title, data.probe_name, data.completed, data.total);
+      scrollProbesColumn(data.section_title, data.probe_name);
       break;
 
     case "probe_metric_complete":
-      completeProbeMetric(data.section_title, data.probe_name, data.mean_score);
+      completeProbeMetric(data.section_title, data.probe_name, data.mean_score, data.first_failure);
+      scrollProbesColumn(data.section_title, data.probe_name);
       break;
 
     case "probe_complete":
       completeProbeSectionGroup(data.section_title);
+      removeConnectionLine(data.section_title);
+      animateConnector("writer-assembly");
       break;
 
     case "pipeline_complete":
@@ -156,12 +107,11 @@ function dispatch(event) {
 
 // ---- Stage flash helpers ----
 
-// Pulse an already-active stage to show it's being invoked again.
 function pulseActive(stage) {
   const el = document.querySelector(`.stage[data-stage="${stage}"]`);
   if (!el) return;
   el.classList.remove('flash-pulse');
-  void el.offsetWidth; // force reflow to restart animation
+  void el.offsetWidth;
   el.classList.add('flash-pulse');
   setTimeout(() => el.classList.remove('flash-pulse'), 2500);
 }
@@ -172,7 +122,6 @@ const CONNECTOR_MAP = {
   manager: "manager-scanner",
   scanner: "scanner-synthesis",
   synthesis_manager: "synthesis-writer",
-  probes: "probes-assembly",
 };
 
 function activateStage(stage) {
@@ -216,9 +165,7 @@ function completeStage(stage, data) {
 
     case "synthesis_manager":
       if (data.sections) {
-        // data.sections is now [{title, order}, ...]
         const titles = data.sections.map((s) => typeof s === "string" ? s : s.title);
-        const orders = data.sections.map((s) => typeof s === "string" ? null : s.order);
         detail.innerHTML = "<strong>Report outline:</strong><ol>" +
           titles.map((t) => `<li>${escHtml(t)}</li>`).join("") +
           "</ol>";
@@ -254,7 +201,7 @@ function updateScannerProgress(completed, total, relevant) {
 }
 
 // ---- Section writer stages (tree branches) ----
-let sectionOrderMap = {}; // order -> index for lookup
+let sectionOrderMap = {};
 let probeCount = 0;
 
 function createSectionWriterStages(sections) {
@@ -273,7 +220,6 @@ function createSectionWriterStages(sections) {
     container.appendChild(el);
   });
 
-  // Show the tree container now that we have branches
   document.getElementById("tree-container").style.display = "block";
 }
 
@@ -291,7 +237,7 @@ function completeSectionWriterStage(order) {
   el.classList.add("completed");
 }
 
-// ---- Per-section probe groups (section title + 3 child metrics) ----
+// ---- Per-section probe groups (right column) ----
 
 const PROBE_METRICS = [
   { key: "citation_faithfulness", label: "Faithfulness" },
@@ -299,11 +245,12 @@ const PROBE_METRICS = [
   { key: "citation_sufficiency", label: "Sufficiency" },
 ];
 
-function addProbeSectionGroup(sectionTitle) {
+function addProbeSectionGroup(sectionTitle, order) {
   const container = document.getElementById("probe-section-groups");
   const group = document.createElement("div");
   group.className = "probe-group probing";
   group.dataset.title = sectionTitle;
+  if (order != null) group.dataset.order = String(order);
 
   const header = document.createElement("div");
   header.className = "probe-group-header";
@@ -316,7 +263,7 @@ function addProbeSectionGroup(sectionTitle) {
     const m = document.createElement("div");
     m.className = "probe-metric pending";
     m.dataset.probe = key;
-    m.innerHTML = `<span class="probe-metric-icon"></span><span class="probe-metric-name">${label}</span><span class="probe-metric-progress"></span><span class="probe-metric-score"></span>`;
+    m.innerHTML = `<div class="probe-metric-header"><span class="probe-metric-icon"></span><span class="probe-metric-name">${label}</span><span class="probe-metric-count"></span><span class="probe-metric-score"></span></div><div class="probe-metric-progress"></div>`;
     metrics.appendChild(m);
   }
   group.appendChild(metrics);
@@ -336,35 +283,50 @@ function activateProbeMetric(sectionTitle, probeName, totalCitations) {
   el.classList.remove("pending", "completed");
   el.classList.add("active");
 
-  const progEl = el.querySelector(".probe-metric-progress");
-  if (progEl && totalCitations > 0) {
-    progEl.innerHTML = `<span class="probe-progress-bar"><span class="probe-progress-fill" style="width:0%"></span></span><span class="probe-progress-text">0/${totalCitations}</span>`;
+  const countEl = el.querySelector(".probe-metric-count");
+  if (countEl && totalCitations > 0) {
+    countEl.textContent = `${totalCitations} citations`;
   }
 }
 
 function updateProbeMetricProgress(sectionTitle, probeName, completed, total) {
-  const el = _findProbeMetric(sectionTitle, probeName);
-  if (!el) return;
-  const fill = el.querySelector(".probe-progress-fill");
-  const text = el.querySelector(".probe-progress-text");
-  if (fill) fill.style.width = `${total > 0 ? (completed / total) * 100 : 0}%`;
-  if (text) text.textContent = `${completed}/${total}`;
+  // No-op: progress bar removed in favor of failure display
 }
 
-function completeProbeMetric(sectionTitle, probeName, score) {
+function completeProbeMetric(sectionTitle, probeName, score, firstFailure) {
   const el = _findProbeMetric(sectionTitle, probeName);
   if (!el) return;
   el.classList.remove("pending", "active");
   el.classList.add("completed");
 
-  // Replace progress bar with score
-  const progEl = el.querySelector(".probe-metric-progress");
-  if (progEl) progEl.innerHTML = "";
-
   const scoreEl = el.querySelector(".probe-metric-score");
   if (scoreEl && score != null) {
     scoreEl.textContent = score.toFixed(2);
     scoreEl.style.color = score >= 0.7 ? "#3fb950" : score >= 0.4 ? "#d29922" : "#f85149";
+  }
+
+  // Show first failure verdict and rationale
+  const progEl = el.querySelector(".probe-metric-progress");
+  if (progEl) {
+    if (firstFailure) {
+      const verdictColor = firstFailure.score >= 0.7 ? "#d29922" : firstFailure.score >= 0.4 ? "#d29922" : "#f85149";
+      progEl.innerHTML = `<div class="probe-failure-detail"><span class="probe-failure-verdict" style="color:${verdictColor}">${escHtml(firstFailure.verdict)}</span><span class="probe-failure-rationale">${escHtml(firstFailure.rationale)}</span></div>`;
+    } else {
+      progEl.innerHTML = "";
+    }
+  }
+}
+
+function scrollProbesColumn(sectionTitle, probeName) {
+  const el = _findProbeMetric(sectionTitle, probeName);
+  if (!el) return;
+  const column = document.querySelector(".probes-column");
+  if (!column) return;
+  const elRect = el.getBoundingClientRect();
+  const colRect = column.getBoundingClientRect();
+  const offset = elRect.bottom - colRect.bottom;
+  if (offset > 0) {
+    column.scrollBy({ top: offset + 20, behavior: "smooth" });
   }
 }
 
@@ -375,36 +337,77 @@ function completeProbeSectionGroup(sectionTitle) {
   group.classList.add("done");
 }
 
-// ---- Log panel ----
-function appendLog(type, message) {
-  const panel = document.getElementById("log-panel");
-  const entry = document.createElement("div");
-  entry.className = "log-entry";
+// ---- Connection lines between section writers (left) and probe groups (right) ----
 
-  const now = new Date();
-  const time = now.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const activeConnections = {};
 
-  let typeClass = "progress";
-  if (type.includes("start") || type === "system") typeClass = "start";
-  else if (type.includes("complete")) typeClass = "complete";
-  else if (type === "error") typeClass = "error";
+function drawConnectionLine(order, sectionTitle) {
+  const writerEl = document.querySelector(`.section-writer-stage[data-section-order="${order}"]`);
+  const probeEl = document.querySelector(`.probe-group[data-title="${CSS.escape(sectionTitle)}"]`);
+  if (!writerEl || !probeEl) return;
 
-  entry.innerHTML = `<span class="log-time">${time}</span> <span class="log-type ${typeClass}">${escHtml(type)}</span> ${escHtml(message)}`;
-  panel.appendChild(entry);
-  panel.scrollTop = panel.scrollHeight;
+  const svg = document.getElementById("connection-lines");
+  const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  line.classList.add("connection-line");
+  line.dataset.title = sectionTitle;
+  svg.appendChild(line);
+
+  activeConnections[sectionTitle] = { order, line };
+  updateConnectionLine(sectionTitle);
 }
 
-// ---- Auto-scroll to keep active elements visible ----
-function scrollToActive(el) {
-  if (!el) return;
-  el.scrollIntoView({ behavior: "smooth", block: "center" });
+function updateConnectionLine(sectionTitle) {
+  const conn = activeConnections[sectionTitle];
+  if (!conn) return;
+
+  const writerEl = document.querySelector(`.section-writer-stage[data-section-order="${conn.order}"]`);
+  const probeEl = document.querySelector(`.probe-group[data-title="${CSS.escape(sectionTitle)}"]`);
+  if (!writerEl || !probeEl) return;
+
+  const wr = writerEl.getBoundingClientRect();
+  const pr = probeEl.getBoundingClientRect();
+
+  // Start from right edge of section writer, vertically centered
+  const x1 = wr.right;
+  const y1 = wr.top + wr.height / 2;
+  // End at left edge of probe group, vertically centered
+  const x2 = pr.left;
+  const y2 = pr.top + pr.height / 2;
+
+  // Bezier curve bowing right
+  const cx = x1 + (x2 - x1) * 0.5;
+  const d = `M ${x1} ${y1} C ${cx} ${y1}, ${cx} ${y2}, ${x2} ${y2}`;
+  conn.line.setAttribute("d", d);
 }
+
+function removeConnectionLine(sectionTitle) {
+  const conn = activeConnections[sectionTitle];
+  if (!conn) return;
+  conn.line.remove();
+  delete activeConnections[sectionTitle];
+}
+
+// Update connection line positions on scroll/resize
+function updateAllConnectionLines() {
+  for (const title of Object.keys(activeConnections)) {
+    updateConnectionLine(title);
+  }
+}
+
+window.addEventListener("scroll", updateAllConnectionLines, true);
+window.addEventListener("resize", updateAllConnectionLines);
 
 // ---- Utilities ----
 function escHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
+}
+
+// ---- Auto-scroll to keep active elements visible ----
+function scrollToActive(el) {
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function resetPipeline() {
@@ -421,8 +424,13 @@ function resetPipeline() {
   document.getElementById("section-writer-stages").innerHTML = "";
   document.getElementById("tree-container").style.display = "none";
   document.getElementById("probe-section-groups").innerHTML = "";
-  document.getElementById("log-panel").innerHTML = "";
   document.querySelectorAll(".stage-detail").forEach((el) => { el.innerHTML = ""; });
+
+  // Clear connection lines
+  const svg = document.getElementById("connection-lines");
+  svg.innerHTML = "";
+  for (const key of Object.keys(activeConnections)) delete activeConnections[key];
+
   sectionOrderMap = {};
   probeCount = 0;
 }
@@ -441,7 +449,6 @@ document.getElementById("run-form").addEventListener("submit", (e) => {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ action: "start", question, corpus_dir: corpusDir, model }));
   } else {
-    appendLog("error", "Not connected to server");
     document.getElementById("run-btn").disabled = false;
   }
 });

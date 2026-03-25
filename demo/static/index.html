@@ -84,21 +84,7 @@
           <div class="tree-branches" id="section-writer-stages"></div>
         </div>
 
-        <div class="connector" data-connector="writer-probes">
-          <svg width="4" height="40"><line x1="2" y1="0" x2="2" y2="40" stroke="#444" stroke-width="2" stroke-dasharray="6 4"/></svg>
-        </div>
-
-        <!-- Measurement Probes (tree convergence) -->
-        <div class="stage pending" data-stage="probes">
-          <div class="stage-header">
-            <span class="stage-icon">P</span>
-            <h2>Measurement Probes</h2>
-          </div>
-          <p class="stage-desc">LM-judge evaluators run per-section</p>
-          <div class="probe-section-groups" id="probe-section-groups"></div>
-        </div>
-
-        <div class="connector" data-connector="probes-assembly">
+        <div class="connector" data-connector="writer-assembly">
           <svg width="4" height="40"><line x1="2" y1="0" x2="2" y2="40" stroke="#444" stroke-width="2" stroke-dasharray="6 4"/></svg>
         </div>
 
@@ -114,12 +100,14 @@
       </div>
     </div>
 
-    <div class="log-column">
-      <h2>Event Log</h2>
-      <div id="log-panel"></div>
+    <div class="probes-column">
+      <h2>Measurement Probes</h2>
+      <p class="probes-subtitle">LM-judge evaluators run per-section</p>
+      <div class="probe-section-groups" id="probe-section-groups"></div>
     </div>
   </div>
 
+  <svg id="connection-lines" class="connection-overlay"></svg>
   <script src="/static/app.js"></script>
 </body>
 </html>
