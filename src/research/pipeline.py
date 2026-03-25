@@ -172,7 +172,8 @@ async def run_research_pipeline(
     if outline is None or not outline.sections:
         raise RuntimeError("Synthesis manager did not call submit_outline")
 
-    await emit("stage_complete", "synthesis_manager", {"num_sections": len(outline.sections), "sections": [s.section_title for s in outline.sections]})
+    sorted_sections = sorted(outline.sections, key=lambda s: s.order)
+    await emit("stage_complete", "synthesis_manager", {"num_sections": len(sorted_sections), "sections": [{"title": s.section_title, "order": s.order} for s in sorted_sections]})
 
     # Write debug artifacts to index dir
     index_dir = context.infra.document_store.index_dir
@@ -235,11 +236,18 @@ async def run_research_pipeline(
             order=section_plan.order,
         )
         await emit("section_complete", "section_writer", {"section_title": section_plan.section_title, "order": section_plan.order, "citations_used": section_result.citations_used})
+        if verbose:
+            print(f"    Section '{section_plan.section_title}' written. Starting measurement probes...")
 
         # ============ MEASUREMENT PROBE HOOK ============
         await emit("probe_start", "probes", {"section_title": section_plan.section_title})
+
+        async def _probe_event(event_type: str, data: dict) -> None:
+            await emit(event_type, "probes", data)
+
         section_result = await run_probes(
-            section_result, section_findings, context
+            section_result, section_findings, context,
+            on_probe_event=_probe_event if on_event else None,
         )
         if verbose:
             print(f"    Probe results for section '{section_result.section_title}':")

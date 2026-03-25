@@ -145,7 +145,7 @@ header .subtitle { font-size: 0.85rem; color: #8b949e; margin-top: 4px; }
   border: 2px solid #30363d;
   border-radius: 12px;
   background: #161b22;
-  transition: all 0.4s ease;
+  transition: border-color 1s ease, box-shadow 1s ease, opacity 1s ease;
   position: relative;
 }
 
@@ -167,7 +167,7 @@ header .subtitle { font-size: 0.85rem; color: #8b949e; margin-top: 4px; }
   font-weight: 700;
   font-size: 0.75rem;
   flex-shrink: 0;
-  transition: all 0.4s ease;
+  transition: background 1s ease, color 1s ease;
 }
 .stage h2 {
   font-size: 1rem;
@@ -195,11 +195,20 @@ header .subtitle { font-size: 0.85rem; color: #8b949e; margin-top: 4px; }
   opacity: 1;
   border-color: #58a6ff;
   box-shadow: 0 0 20px rgba(88, 166, 255, 0.3), 0 0 60px rgba(88, 166, 255, 0.1);
-  animation: glow 2s ease-in-out infinite;
+  animation: glow 2s ease-in-out 1s infinite;
 }
 .stage.active .stage-icon {
   background: #58a6ff;
   color: #0d1117;
+}
+
+.stage.waiting {
+  opacity: 0.6;
+  border-color: #30363d;
+}
+.stage.waiting .stage-icon {
+  background: #21262d;
+  color: #8b949e;
 }
 
 .stage.completed {
@@ -214,6 +223,15 @@ header .subtitle { font-size: 0.85rem; color: #8b949e; margin-top: 4px; }
 @keyframes glow {
   0%, 100% { box-shadow: 0 0 20px rgba(88, 166, 255, 0.3), 0 0 60px rgba(88, 166, 255, 0.1); }
   50% { box-shadow: 0 0 30px rgba(88, 166, 255, 0.5), 0 0 80px rgba(88, 166, 255, 0.2); }
+}
+
+/* Brief bright flash overlaid on top of the normal glow/completed state */
+@keyframes flash-pulse {
+  0%   { box-shadow: 0 0 50px rgba(88, 166, 255, 1), 0 0 120px rgba(88, 166, 255, 0.5); border-color: #a5d6ff; }
+  100% { box-shadow: 0 0 20px rgba(88, 166, 255, 0.3), 0 0 60px rgba(88, 166, 255, 0.1); border-color: #58a6ff; }
+}
+.stage.flash-pulse {
+  animation: flash-pulse 2.5s ease-out !important;
 }
 
 .stage.active .stage-header::after {
@@ -238,19 +256,37 @@ header .subtitle { font-size: 0.85rem; color: #8b949e; margin-top: 4px; }
   display: flex;
   justify-content: center;
   height: 40px;
+  position: relative;
 }
 .connector svg line {
   transition: stroke 0.3s;
 }
 .connector.data-flowing svg line {
   stroke: #58a6ff;
-  stroke-width: 2;
-  animation: flow-down 0.6s linear infinite;
+  stroke-width: 3;
+  filter: drop-shadow(0 0 4px rgba(88, 166, 255, 0.8)) drop-shadow(0 0 10px rgba(88, 166, 255, 0.4));
+  animation: flow-down 0.8s linear infinite;
+}
+.connector.data-flowing::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 100%;
+  background: radial-gradient(ellipse at center, rgba(88, 166, 255, 0.3) 0%, transparent 70%);
+  animation: connector-pulse 1.5s ease-in-out infinite;
 }
 
 @keyframes flow-down {
   from { stroke-dashoffset: 20; }
   to { stroke-dashoffset: 0; }
+}
+
+@keyframes connector-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
 }
 
 /* ---- Scanner progress bar ---- */
@@ -285,56 +321,267 @@ header .subtitle { font-size: 0.85rem; color: #8b949e; margin-top: 4px; }
   display: inline-block;
 }
 
-/* ---- Section mini-cards ---- */
-.section-cards {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 10px 0 0 38px;
-}
-.section-card {
-  padding: 6px 10px;
-  border: 1px solid #30363d;
-  border-radius: 6px;
-  background: #0d1117;
-  font-size: 0.75rem;
-  color: #8b949e;
-  transition: all 0.3s ease;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.section-card.writing {
-  border-color: #58a6ff;
-  color: #58a6ff;
-  box-shadow: 0 0 8px rgba(88, 166, 255, 0.3);
-}
-.section-card.probing {
-  border-color: #d29922;
-  color: #d29922;
-  box-shadow: 0 0 8px rgba(210, 153, 34, 0.3);
-}
-.section-card.done {
-  border-color: #3fb950;
-  color: #3fb950;
+/* ---- Tree container (section writers between synthesis_manager and probes) ---- */
+.tree-container {
+  width: 100%;
+  max-width: 600px;
+  position: relative;
+  padding-left: 30px;
+  margin: 0 auto;
 }
 
-/* ---- Probe score badges ---- */
-.probe-badges {
-  display: flex;
-  gap: 4px;
-  margin-top: 4px;
+/* Vertical trunk line from synthesis_manager down the left side */
+.tree-trunk {
+  position: absolute;
+  left: 30px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #30363d;
 }
-.probe-badge {
-  padding: 2px 6px;
-  border-radius: 4px;
+
+/* Branch wrapper */
+.tree-branches {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 0 12px 0;
+}
+
+/* Individual section writer node */
+.section-writer-stage {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-left: 24px;
+  border: 2px solid #30363d;
+  border-radius: 8px;
+  background: #161b22;
+  opacity: 0.4;
+  transition: border-color 1s ease, box-shadow 1s ease, opacity 1s ease;
+  position: relative;
+}
+
+/* Horizontal branch line connecting trunk to node */
+.section-writer-stage::before {
+  content: '';
+  position: absolute;
+  left: -24px;
+  top: 50%;
+  width: 24px;
+  height: 2px;
+  background: #30363d;
+  transition: background 1s ease;
+}
+
+.section-writer-stage.active {
+  opacity: 1;
+  border-color: #58a6ff;
+  box-shadow: 0 0 16px rgba(88, 166, 255, 0.35), 0 0 40px rgba(88, 166, 255, 0.1);
+  animation: glow 2s ease-in-out 1s infinite;
+}
+.section-writer-stage.active::before {
+  background: #58a6ff;
+}
+.section-writer-stage.completed {
+  opacity: 1;
+  border-color: #3fb950;
+  box-shadow: none;
+  animation: none;
+}
+.section-writer-stage.completed::before {
+  background: #3fb950;
+}
+.section-writer-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #21262d;
+  color: #8b949e;
+  font-size: 0.7rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  transition: background 1s ease, color 1s ease;
+}
+.section-writer-stage.active .section-writer-order    { background: #58a6ff; color: #0d1117; }
+.section-writer-stage.completed .section-writer-order { background: #238636; color: #fff; }
+.section-writer-title {
+  flex: 1;
+  font-size: 0.85rem;
+  color: #8b949e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 1s ease;
+}
+.section-writer-stage.active .section-writer-title    { color: #c9d1d9; }
+.section-writer-stage.completed .section-writer-title { color: #c9d1d9; }
+.section-writer-stage.active::after {
+  content: '';
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 2px solid rgba(88, 166, 255, 0.25);
+  border-top-color: #58a6ff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ---- Probe metrics (inside probe groups) ---- */
+.probe-metric {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 20px;
+  border-bottom: 1px solid #21262d;
+  background: #0d1117;
+  font-size: 0.78rem;
+  transition: background 0.3s, opacity 0.3s;
+  opacity: 0.4;
+}
+.probe-metric:last-child {
+  border-bottom: none;
+}
+
+.probe-metric.active {
+  opacity: 1;
+  border-color: #d29922;
+}
+
+.probe-metric.completed {
+  opacity: 1;
+  border-color: #3fb950;
+}
+
+.probe-metric-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #21262d;
+  transition: background 0.3s;
+}
+
+.probe-metric.active .probe-metric-icon {
+  background: none;
+  border: 2px solid rgba(210, 153, 34, 0.25);
+  border-top-color: #d29922;
+  animation: spin 0.8s linear infinite;
+}
+
+.probe-metric.completed .probe-metric-icon {
+  background: #238636;
+}
+
+.probe-metric-name {
+  flex: 1;
+  color: #8b949e;
+  transition: color 0.3s;
+}
+.probe-metric.active .probe-metric-name { color: #d29922; }
+.probe-metric.completed .probe-metric-name { color: #c9d1d9; }
+
+.probe-metric-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.probe-progress-bar {
+  width: 60px;
+  height: 6px;
+  background: #21262d;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.probe-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #d29922, #e3b341);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.probe-metric.completed .probe-progress-fill {
+  background: linear-gradient(90deg, #3fb950, #56d364);
+}
+
+.probe-progress-text {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
   font-size: 0.65rem;
+  color: #8b949e;
+  min-width: 30px;
+}
+
+.probe-metric-score {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #8b949e;
+  min-width: 36px;
+  text-align: right;
+}
+
+/* ---- Per-section probe groups ---- */
+.probe-section-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  margin-left: 38px;
+}
+
+.probe-group {
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  background: #0d1117;
+  overflow: hidden;
+  transition: border-color 0.3s;
+}
+.probe-group.probing { border-color: #d29922; }
+.probe-group.done    { border-color: #3fb950; }
+
+.probe-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  font-size: 0.82rem;
+}
+
+.probe-group-title {
+  flex: 1;
+  color: #8b949e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 600;
 }
-.probe-badge.good { background: rgba(63, 185, 80, 0.15); color: #3fb950; }
-.probe-badge.warn { background: rgba(210, 153, 34, 0.15); color: #d29922; }
-.probe-badge.bad { background: rgba(248, 81, 73, 0.15); color: #f85149; }
+.probe-group.probing .probe-group-title { color: #d29922; }
+.probe-group.done .probe-group-title    { color: #c9d1d9; }
+
+.probe-group-spinner {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border: 2px solid rgba(210, 153, 34, 0.25);
+  border-top-color: #d29922;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.probe-group.done .probe-group-spinner { display: none; }
+
+.probe-group-metrics {
+  display: flex;
+  flex-direction: column;
+}
 
 /* ---- Log panel ---- */
 #log-panel {

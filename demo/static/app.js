@@ -39,6 +39,10 @@ function summarize(type, stage, data) {
       return `Section done: "${data.section_title}" (${data.citations_used?.length ?? 0} citations)`;
     case "probe_start":
       return `Probing: "${data.section_title}"`;
+    case "probe_metric_start":
+      return `  Running ${data.probe_name} probe on "${data.section_title}" (${data.total_citations} citations)`;
+    case "probe_metric_complete":
+      return `  ${data.probe_name}: ${(data.mean_score || 0).toFixed(2)}`;
     case "probe_complete": {
       const scores = Object.entries(data.results || {})
         .map(([name, r]) => `${name.replace("run_", "").replace("_probe", "")}: ${(r.mean_score || 0).toFixed(2)}`)
@@ -76,21 +80,25 @@ function dispatch(event) {
   if (type === "scanner_progress") {
     updateScannerProgress(data.completed, data.total, data.relevant_so_far);
     if (data.completed % 25 === 0 || data.completed === data.total) {
-      appendLog(type, `${stage}: ${JSON.stringify(data)}`);
+      appendLog(type, summarize(type, stage, data));
     }
     return;
   }
+
+  if (type === "probe_metric_progress") return;
 
   appendLog(type, summarize(type, stage, data || {}));
 
   switch (type) {
     case "stage_start":
+      if (stage === "assembly") completeStage("probes", {});
       activateStage(stage);
       if (stage === "scanner" && data.total_chunks) {
         const prog = document.getElementById("scanner-progress");
         prog.style.display = "block";
         updateScannerProgress(0, data.total_chunks, 0);
       }
+      scrollToActive(document.querySelector(`.stage[data-stage="${stage}"]`));
       break;
 
     case "stage_complete":
@@ -102,22 +110,38 @@ function dispatch(event) {
       break;
 
     case "section_start":
-      activateStage("section_writer");
-      setSectionCardState(data.order, data.section_title, "writing");
+      activateSectionWriterStage(data.order);
+      waitStage("probes");
+      scrollToActive(document.querySelector(`.section-writer-stage[data-section-order="${data.order}"]`));
       break;
 
     case "section_complete":
-      setSectionCardState(data.order, data.section_title, "done");
+      completeSectionWriterStage(data.order);
+      animateConnector("writer-probes");
       break;
 
     case "probe_start":
-      activateStage("probes");
-      setSectionCardState(findOrderByTitle(data.section_title), data.section_title, "probing");
+      probeCount++;
+      if (probeCount === 1) activateStage("probes");
+      else pulseActive("probes");
+      addProbeSectionGroup(data.section_title);
+      scrollToActive(document.querySelector(`.probe-group[data-title="${CSS.escape(data.section_title)}"]`));
+      break;
+
+    case "probe_metric_start":
+      activateProbeMetric(data.section_title, data.probe_name, data.total_citations);
+      break;
+
+    case "probe_metric_progress":
+      updateProbeMetricProgress(data.section_title, data.probe_name, data.completed, data.total);
+      break;
+
+    case "probe_metric_complete":
+      completeProbeMetric(data.section_title, data.probe_name, data.mean_score);
       break;
 
     case "probe_complete":
-      completeStage("probes");
-      renderProbeScores(data.section_title, data.results);
+      completeProbeSectionGroup(data.section_title);
       break;
 
     case "pipeline_complete":
@@ -130,21 +154,39 @@ function dispatch(event) {
   }
 }
 
+// ---- Stage flash helpers ----
+
+// Pulse an already-active stage to show it's being invoked again.
+function pulseActive(stage) {
+  const el = document.querySelector(`.stage[data-stage="${stage}"]`);
+  if (!el) return;
+  el.classList.remove('flash-pulse');
+  void el.offsetWidth; // force reflow to restart animation
+  el.classList.add('flash-pulse');
+  setTimeout(() => el.classList.remove('flash-pulse'), 2500);
+}
+
 // ---- Stage state management ----
 
 const CONNECTOR_MAP = {
   manager: "manager-scanner",
   scanner: "scanner-synthesis",
   synthesis_manager: "synthesis-writer",
-  section_writer: "writer-probes",
   probes: "probes-assembly",
 };
 
 function activateStage(stage) {
   const el = document.querySelector(`.stage[data-stage="${stage}"]`);
   if (!el) return;
-  el.classList.remove("pending", "completed");
+  el.classList.remove("pending", "completed", "waiting");
   el.classList.add("active");
+}
+
+function waitStage(stage) {
+  const el = document.querySelector(`.stage[data-stage="${stage}"]`);
+  if (!el || el.classList.contains("pending")) return;
+  el.classList.remove("active", "completed");
+  el.classList.add("waiting");
 }
 
 function completeStage(stage, data) {
@@ -174,10 +216,13 @@ function completeStage(stage, data) {
 
     case "synthesis_manager":
       if (data.sections) {
+        // data.sections is now [{title, order}, ...]
+        const titles = data.sections.map((s) => typeof s === "string" ? s : s.title);
+        const orders = data.sections.map((s) => typeof s === "string" ? null : s.order);
         detail.innerHTML = "<strong>Report outline:</strong><ol>" +
-          data.sections.map((s) => `<li>${escHtml(s)}</li>`).join("") +
+          titles.map((t) => `<li>${escHtml(t)}</li>`).join("") +
           "</ol>";
-        createSectionCards(data.sections);
+        createSectionWriterStages(data.sections);
       }
       break;
 
@@ -187,14 +232,16 @@ function completeStage(stage, data) {
   }
 }
 
+function animateConnector(key) {
+  const conn = document.querySelector(`.connector[data-connector="${key}"]`);
+  if (!conn) return;
+  conn.classList.add("data-flowing");
+  setTimeout(() => conn.classList.remove("data-flowing"), 3000);
+}
+
 function animateConnectorAfter(stage) {
   const key = CONNECTOR_MAP[stage];
-  if (!key) return;
-  const conn = document.querySelector(`.connector[data-connector="${key}"]`);
-  if (conn) {
-    conn.classList.add("data-flowing");
-    setTimeout(() => conn.classList.remove("data-flowing"), 2000);
-  }
+  if (key) animateConnector(key);
 }
 
 // ---- Scanner progress ----
@@ -206,63 +253,126 @@ function updateScannerProgress(completed, total, relevant) {
   text.textContent = `${completed} / ${total} chunks (${relevant} relevant)`;
 }
 
-// ---- Section cards ----
-let sectionTitles = [];
+// ---- Section writer stages (tree branches) ----
+let sectionOrderMap = {}; // order -> index for lookup
+let probeCount = 0;
 
-function createSectionCards(titles) {
-  sectionTitles = titles;
-  const container = document.getElementById("section-cards");
+function createSectionWriterStages(sections) {
+  sectionOrderMap = {};
+  const container = document.getElementById("section-writer-stages");
   container.innerHTML = "";
-  titles.forEach((title, i) => {
-    const card = document.createElement("div");
-    card.className = "section-card";
-    card.dataset.order = String(i + 1);
-    card.dataset.title = title;
-    card.textContent = title;
-    card.title = title;
-    container.appendChild(card);
+  sections.forEach((sec, i) => {
+    const title = typeof sec === "string" ? sec : sec.title;
+    const order = typeof sec === "string" ? i + 1 : sec.order;
+    sectionOrderMap[order] = i;
+
+    const el = document.createElement("div");
+    el.className = "section-writer-stage";
+    el.dataset.sectionOrder = String(order);
+    el.innerHTML = `<span class="section-writer-order">${order}</span><span class="section-writer-title">Writing: ${escHtml(title)}</span>`;
+    container.appendChild(el);
   });
+
+  // Show the tree container now that we have branches
+  document.getElementById("tree-container").style.display = "block";
 }
 
-function findOrderByTitle(title) {
-  const idx = sectionTitles.indexOf(title);
-  return idx >= 0 ? idx + 1 : null;
+function activateSectionWriterStage(order) {
+  const el = document.querySelector(`.section-writer-stage[data-section-order="${order}"]`);
+  if (!el) return;
+  el.classList.remove("completed");
+  el.classList.add("active");
 }
 
-function setSectionCardState(order, title, state) {
-  if (!order && title) order = findOrderByTitle(title);
-  if (!order) return;
-  const card = document.querySelector(`.section-card[data-order="${order}"]`);
-  if (!card) return;
-  card.classList.remove("writing", "probing", "done");
-  card.classList.add(state);
+function completeSectionWriterStage(order) {
+  const el = document.querySelector(`.section-writer-stage[data-section-order="${order}"]`);
+  if (!el) return;
+  el.classList.remove("active");
+  el.classList.add("completed");
 }
 
-function renderProbeScores(sectionTitle, results) {
-  const order = findOrderByTitle(sectionTitle);
-  if (!order) return;
-  const card = document.querySelector(`.section-card[data-order="${order}"]`);
-  if (!card) return;
+// ---- Per-section probe groups (section title + 3 child metrics) ----
 
-  const existing = card.querySelector(".probe-badges");
-  if (existing) existing.remove();
+const PROBE_METRICS = [
+  { key: "citation_faithfulness", label: "Faithfulness" },
+  { key: "citation_completeness", label: "Completeness" },
+  { key: "citation_sufficiency", label: "Sufficiency" },
+];
 
-  const badges = document.createElement("div");
-  badges.className = "probe-badges";
+function addProbeSectionGroup(sectionTitle) {
+  const container = document.getElementById("probe-section-groups");
+  const group = document.createElement("div");
+  group.className = "probe-group probing";
+  group.dataset.title = sectionTitle;
 
-  for (const [name, result] of Object.entries(results)) {
-    const score = result.mean_score || 0;
-    const badge = document.createElement("span");
-    const shortName = name.replace("run_", "").replace("_probe", "").substring(0, 4).toUpperCase();
-    badge.textContent = `${shortName}: ${score.toFixed(2)}`;
-    badge.className = "probe-badge " + (score >= 0.7 ? "good" : score >= 0.4 ? "warn" : "bad");
-    badge.title = `${name}: ${score.toFixed(3)}`;
-    badges.appendChild(badge);
+  const header = document.createElement("div");
+  header.className = "probe-group-header";
+  header.innerHTML = `<span class="probe-group-spinner"></span><span class="probe-group-title">${escHtml(sectionTitle)}</span>`;
+  group.appendChild(header);
+
+  const metrics = document.createElement("div");
+  metrics.className = "probe-group-metrics";
+  for (const { key, label } of PROBE_METRICS) {
+    const m = document.createElement("div");
+    m.className = "probe-metric pending";
+    m.dataset.probe = key;
+    m.innerHTML = `<span class="probe-metric-icon"></span><span class="probe-metric-name">${label}</span><span class="probe-metric-progress"></span><span class="probe-metric-score"></span>`;
+    metrics.appendChild(m);
   }
+  group.appendChild(metrics);
 
-  card.style.whiteSpace = "normal";
-  card.style.maxWidth = "none";
-  card.appendChild(badges);
+  container.appendChild(group);
+}
+
+function _findProbeMetric(sectionTitle, probeName) {
+  const group = document.querySelector(`.probe-group[data-title="${CSS.escape(sectionTitle)}"]`);
+  if (!group) return null;
+  return group.querySelector(`.probe-metric[data-probe="${probeName}"]`);
+}
+
+function activateProbeMetric(sectionTitle, probeName, totalCitations) {
+  const el = _findProbeMetric(sectionTitle, probeName);
+  if (!el) return;
+  el.classList.remove("pending", "completed");
+  el.classList.add("active");
+
+  const progEl = el.querySelector(".probe-metric-progress");
+  if (progEl && totalCitations > 0) {
+    progEl.innerHTML = `<span class="probe-progress-bar"><span class="probe-progress-fill" style="width:0%"></span></span><span class="probe-progress-text">0/${totalCitations}</span>`;
+  }
+}
+
+function updateProbeMetricProgress(sectionTitle, probeName, completed, total) {
+  const el = _findProbeMetric(sectionTitle, probeName);
+  if (!el) return;
+  const fill = el.querySelector(".probe-progress-fill");
+  const text = el.querySelector(".probe-progress-text");
+  if (fill) fill.style.width = `${total > 0 ? (completed / total) * 100 : 0}%`;
+  if (text) text.textContent = `${completed}/${total}`;
+}
+
+function completeProbeMetric(sectionTitle, probeName, score) {
+  const el = _findProbeMetric(sectionTitle, probeName);
+  if (!el) return;
+  el.classList.remove("pending", "active");
+  el.classList.add("completed");
+
+  // Replace progress bar with score
+  const progEl = el.querySelector(".probe-metric-progress");
+  if (progEl) progEl.innerHTML = "";
+
+  const scoreEl = el.querySelector(".probe-metric-score");
+  if (scoreEl && score != null) {
+    scoreEl.textContent = score.toFixed(2);
+    scoreEl.style.color = score >= 0.7 ? "#3fb950" : score >= 0.4 ? "#d29922" : "#f85149";
+  }
+}
+
+function completeProbeSectionGroup(sectionTitle) {
+  const group = document.querySelector(`.probe-group[data-title="${CSS.escape(sectionTitle)}"]`);
+  if (!group) return;
+  group.classList.remove("probing");
+  group.classList.add("done");
 }
 
 // ---- Log panel ----
@@ -284,6 +394,12 @@ function appendLog(type, message) {
   panel.scrollTop = panel.scrollHeight;
 }
 
+// ---- Auto-scroll to keep active elements visible ----
+function scrollToActive(el) {
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
 // ---- Utilities ----
 function escHtml(str) {
   const div = document.createElement("div");
@@ -293,7 +409,7 @@ function escHtml(str) {
 
 function resetPipeline() {
   document.querySelectorAll(".stage").forEach((el) => {
-    el.classList.remove("active", "completed");
+    el.classList.remove("active", "completed", "waiting");
     el.classList.add("pending");
   });
   document.querySelectorAll(".connector").forEach((el) => {
@@ -302,10 +418,13 @@ function resetPipeline() {
   document.getElementById("scanner-progress").style.display = "none";
   document.getElementById("scanner-fill").style.width = "0%";
   document.getElementById("scanner-prefilter-note").textContent = "";
-  document.getElementById("section-cards").innerHTML = "";
+  document.getElementById("section-writer-stages").innerHTML = "";
+  document.getElementById("tree-container").style.display = "none";
+  document.getElementById("probe-section-groups").innerHTML = "";
   document.getElementById("log-panel").innerHTML = "";
   document.querySelectorAll(".stage-detail").forEach((el) => { el.innerHTML = ""; });
-  sectionTitles = [];
+  sectionOrderMap = {};
+  probeCount = 0;
 }
 
 // ---- Form handler ----

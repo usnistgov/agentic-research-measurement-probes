@@ -68,7 +68,7 @@
           <svg width="4" height="40"><line x1="2" y1="0" x2="2" y2="40" stroke="#444" stroke-width="2" stroke-dasharray="6 4"/></svg>
         </div>
 
-        <!-- Synthesis Manager -->
+        <!-- Synthesis Manager (tree root) -->
         <div class="stage pending" data-stage="synthesis_manager">
           <div class="stage-header">
             <span class="stage-icon">3a</span>
@@ -78,32 +78,24 @@
           <div class="stage-detail" id="synthesis_manager-detail"></div>
         </div>
 
-        <div class="connector" data-connector="synthesis-writer">
-          <svg width="4" height="40"><line x1="2" y1="0" x2="2" y2="40" stroke="#444" stroke-width="2" stroke-dasharray="6 4"/></svg>
-        </div>
-
-        <!-- Section Writer -->
-        <div class="stage pending" data-stage="section_writer">
-          <div class="stage-header">
-            <span class="stage-icon">3b</span>
-            <h2>Section Writer</h2>
-          </div>
-          <p class="stage-desc">Writes each report section with assigned evidence</p>
-          <div class="section-cards" id="section-cards"></div>
+        <!-- Tree: section writers (dynamically populated) -->
+        <div class="tree-container" id="tree-container" style="display:none">
+          <div class="tree-trunk"></div>
+          <div class="tree-branches" id="section-writer-stages"></div>
         </div>
 
         <div class="connector" data-connector="writer-probes">
           <svg width="4" height="40"><line x1="2" y1="0" x2="2" y2="40" stroke="#444" stroke-width="2" stroke-dasharray="6 4"/></svg>
         </div>
 
-        <!-- Measurement Probes -->
+        <!-- Measurement Probes (tree convergence) -->
         <div class="stage pending" data-stage="probes">
           <div class="stage-header">
             <span class="stage-icon">P</span>
             <h2>Measurement Probes</h2>
           </div>
-          <p class="stage-desc">LM-judge evaluators: Faithfulness, Completeness, Sufficiency</p>
-          <div class="stage-detail" id="probes-detail"></div>
+          <p class="stage-desc">LM-judge evaluators run per-section</p>
+          <div class="probe-section-groups" id="probe-section-groups"></div>
         </div>
 
         <div class="connector" data-connector="probes-assembly">
@@ -114,7 +106,7 @@
         <div class="stage pending" data-stage="assembly">
           <div class="stage-header">
             <span class="stage-icon">3c</span>
-            <h2>Assembly</h2>
+            <h2>Final Report Assembly</h2>
           </div>
           <p class="stage-desc">Concatenates sections and appends references</p>
           <div class="stage-detail" id="assembly-detail"></div>

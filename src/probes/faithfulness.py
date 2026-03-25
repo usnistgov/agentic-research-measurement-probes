@@ -8,6 +8,7 @@ the claim made in the citing sentence.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel
@@ -15,7 +16,7 @@ from pydantic import BaseModel
 from models import CitationVerdict, Finding, ProbeResult, SectionResult
 from probes import register_probe
 from probes._extract import CitationTriple, extract_citation_triples, find_evidence, mark_sentence_in_context
-from probes._judge import call_judge
+from probes._judge import call_judge, gather_with_progress
 from probes._prompts import CITATION_FAITHFULNESS_PROMPT
 
 if TYPE_CHECKING:
@@ -93,6 +94,7 @@ async def run_citation_faithfulness_probe(
     section_result: SectionResult,
     section_evidence: list[Finding],
     context: ResearchContext,
+    on_progress: Callable[[int, int], Awaitable[None]] | None = None,
 ) -> ProbeResult:
     """Run the citation faithfulness probe on a single section.
 
@@ -136,9 +138,9 @@ async def run_citation_faithfulness_probe(
                 )
             )
 
-    # Run all judge calls concurrently
+    # Run all judge calls concurrently with progress tracking
     if tasks:
-        judged = await asyncio.gather(*tasks)
+        judged = await gather_with_progress(tasks, on_progress)
         verdicts.extend(judged)
 
     # Aggregate
