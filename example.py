@@ -33,6 +33,13 @@ async def main() -> None:
     set_tracing_disabled(True)
 
     config = Config()
+    # Warn if OpenAI API key is not set or if using default OpenAI URL without a key
+    if not config.openai_api_key:
+        if config.openai_base_url == "https://api.openai.com/v1":
+            print("Warning: OPENAI_API_KEY is not set. Using default OpenAI API URL but no API key provided.", file=sys.stderr)
+        else:
+            print("Warning: OPENAI_API_KEY is not set. The OpenAI API client may fail to initialize.", file=sys.stderr)
+
     corpus_dir = Path("./example-corpus").resolve()
     config.corpus_dir = str(corpus_dir)
 

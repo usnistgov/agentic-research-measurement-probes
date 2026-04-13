@@ -8,6 +8,7 @@ Usage:
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -136,6 +137,23 @@ def create_app() -> web.Application:
     return app
 
 
+def _check_startup_config() -> None:
+    """Fail loudly at startup if required environment variables are missing."""
+    errors = []
+    if not os.environ.get("OPENAI_API_KEY"):
+        errors.append("  OPENAI_API_KEY    - API key for your model server")
+    if not os.environ.get("OPENAI_BASE_URL"):
+        errors.append("  OPENAI_BASE_URL   - Base URL of your model server (e.g. https://rchat.nist.gov/api)")
+    if not os.environ.get("ODR_MODEL"):
+        errors.append("  ODR_MODEL         - Model name to use (e.g. gpt-oss-120b)")
+    if errors:
+        print("ERROR: Missing required configuration. Copy .env.example to .env and set:", file=sys.stderr)
+        for e in errors:
+            print(e, file=sys.stderr)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
+    _check_startup_config()
     print("Starting demo server at http://localhost:8765")
     web.run_app(create_app(), port=8765)

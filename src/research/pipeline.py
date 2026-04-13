@@ -23,6 +23,7 @@ from typing import Any
 
 from agents import Runner, ModelSettings, RunConfig
 from openai.types.shared import Reasoning
+from openai import AsyncOpenAI
 
 from config import Config
 from research.context import ResearchContext
@@ -36,6 +37,19 @@ from research.synthesis_agent import (
 from research.tools import format_all_evidence, format_outline_md
 from models import SectionResult
 from probes import run_probes
+
+
+def _validate_openai_config(client: AsyncOpenAI) -> None:
+    """Validate that OpenAI API is properly configured.
+
+    Raises:
+        RuntimeError: If API key is missing.
+    """
+    if not client.api_key:
+        raise RuntimeError(
+            "OPENAI_API_KEY is not set. "
+            "Copy .env.example to .env and configure your API key."
+        )
 
 
 def build_model(context: ResearchContext) -> SanitizingModel:
@@ -83,6 +97,9 @@ async def run_research_pipeline(
             await on_event({"type": event_type, "stage": stage, "timestamp": time.time(), "data": data or {}})
 
     model = build_model(context)
+
+    # Validate that OpenAI API is properly configured before proceeding
+    _validate_openai_config(context.infra.openai_client)
 
     # --- Step 1: Decompose question into sub-questions ---
     await emit("stage_start", "manager", {"question": question})
