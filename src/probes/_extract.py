@@ -1,4 +1,4 @@
-"""Shared citation extraction utilities for measurement probes."""
+"""Shared citation extraction utilities for evaluation probes."""
 
 from __future__ import annotations
 

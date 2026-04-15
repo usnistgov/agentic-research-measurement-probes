@@ -1,4 +1,4 @@
-"""LM-judge prompt templates for measurement probes."""
+"""LM-judge prompt templates for evaluation probes."""
 
 CITATION_FAITHFULNESS_PROMPT = """You are a citation faithfulness auditor. Your job is to determine whether a cited source passage actually supports the claim made in a sentence from a research report. You are checking for errors of commission: does the sentence say something the source does not say, or contradict what the source says?
 

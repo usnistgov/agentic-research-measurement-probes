@@ -1,10 +1,10 @@
-# Measurement Probes Reference
+# Evaluation Probes Reference
 
 Detailed reference for the probe system in `probes/`. Read this when implementing or modifying probes.
 
 ## Overview
 
-Measurement probes are LM-judge evaluators that run after each section is written, scoring the section's quality along a specific dimension. Probe results are stored on `SectionResult.probe_results` (keyed by probe name) and serialized to `context_state.json` as part of the audit trail.
+Evaluation probes are LM-judge evaluators that run after each section is written, scoring the section's quality along a specific dimension. Probe results are stored on `SectionResult.probe_results` (keyed by probe name) and serialized to `context_state.json` as part of the audit trail.
 
 **Integration point:** `research/pipeline.py` calls `run_probes()` after each section writer finishes. The dispatcher in `probes/__init__.py` iterates the probe registry and calls each registered probe.
 
@@ -22,7 +22,7 @@ Measurement probes are LM-judge evaluators that run after each section is writte
 
 ## Implemented Probes
 
-The three implemented per-citation probes form a mutually exclusive, collectively exhaustive evaluation of how a citation is used. Each measures a distinct direction of evaluation:
+The three implemented per-citation probes form a mutually exclusive, collectively exhaustive evaluation of how a citation is used. Each characterizes a distinct direction of evaluation:
 
 | Probe | Direction | Question |
 |---|---|---|
@@ -30,7 +30,7 @@ The three implemented per-citation probes form a mutually exclusive, collectivel
 | Completeness | Anti-cherry-picking | Did the text capture the source's full message? |
 | Sufficiency | Anti-overreaching | Does the source carry the burden of proof the claim requires? |
 
-- **Citation Faithfulness** (`probes/faithfulness.py`) -- For each `[^N]` citation in a section, extracts the citing sentence (with all `[^N]` markers stripped to avoid confusing the judge), resolves the cited source chunk from evidence, and asks an LM judge: "does the source passage actually support the claim in this sentence?" Scores each citation as SUPPORTED (1.0), PARTIALLY_SUPPORTED (0.5), or NOT_SUPPORTED (0.0). This measures *precision/faithfulness* -- errors of commission (claiming something the source doesn't say), not errors of omission.
+- **Citation Faithfulness** (`probes/faithfulness.py`) -- For each `[^N]` citation in a section, extracts the citing sentence (with all `[^N]` markers stripped to avoid confusing the judge), resolves the cited source chunk from evidence, and asks an LM judge: "does the source passage actually support the claim in this sentence?" Scores each citation as SUPPORTED (1.0), PARTIALLY_SUPPORTED (0.5), or NOT_SUPPORTED (0.0). This looks at *precision/faithfulness* -- errors of commission (claiming something the source doesn't say), not errors of omission.
 
 - **Citation Completeness** (`probes/completeness.py`) -- Evaluates the Representational Delta between a cited source passage and the text that cites it. Checks whether the citing text accurately and completely represents what the source actually says -- its full message, epistemic weight, and boundaries -- without actively misleading the reader. Catches missing hedges, scope erasure, statistical asymmetry, trade-off erasure, and proportionality skew. Scores each citation as COMPLETE (1.0), MINOR_OMISSION (0.7), SIGNIFICANT_OMISSION (0.3), or MISREPRESENTATION (0.0).
 

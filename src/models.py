@@ -124,7 +124,7 @@ class SectionVerdict(BaseVerdict):
 
 
 class ProbeResult(BaseModel):
-    """Aggregated result of a measurement probe on a section."""
+    """Aggregated result of an evaluation probe on a section."""
 
     probe_name: str
     section_title: str
@@ -140,4 +140,4 @@ class SectionResult(BaseModel):
     content: str  # Markdown content
     citations_used: list[int] = Field(default_factory=list)  # citation_ids referenced
     order: int = 0
-    probe_results: dict = Field(default_factory=dict)  # Hook for measurement probes
+    probe_results: dict = Field(default_factory=dict)  # Hook for evaluation probes

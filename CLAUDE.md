@@ -50,7 +50,7 @@ The system uses a **programmatic pipeline** (not LLM-driven handoffs) for reliab
    - 3a. Synthesis Manager plans report outline, assigns citation IDs to sections
    - 3b. Section Writer writes each section with its assigned evidence
    - 3c. Assembly concatenates sections + references
-4. **Measurement Probes** (`probes/`) -- LM-judge evaluators run after each section, scoring quality. Results stored on `SectionResult.probe_results`.
+4. **Evaluation Probes** (`probes/`) -- LM-judge evaluators run after each section, scoring quality. Results stored on `SectionResult.probe_results`.
 
 All agents share a `ResearchContext` (`research/context.py`) with immutable `ResearchInfrastructure` and mutable `ResearchState`.
 

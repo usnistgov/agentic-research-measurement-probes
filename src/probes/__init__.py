@@ -1,4 +1,4 @@
-"""Measurement probes for research pipeline outputs."""
+"""Evaluation probes for research pipeline outputs."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ async def run_probes(
     context: ResearchContext,
     on_probe_event: Callable[[str, dict], Awaitable[None]] | None = None,
 ) -> SectionResult:
-    """Run all registered measurement probes on a section.
+    """Run all registered evaluation probes on a section.
 
     Returns the section_result with probe_results populated.
     on_probe_event receives (event_type, data) for each individual probe.

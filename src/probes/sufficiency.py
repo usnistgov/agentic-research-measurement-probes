@@ -1,4 +1,4 @@
-"""Citation sufficiency measurement probe.
+"""Citation sufficiency evaluation probe.
 
 Evaluates the Evidentiary Delta between a cited source passage and the
 claim it is asked to support. Unlike faithfulness (does the source say

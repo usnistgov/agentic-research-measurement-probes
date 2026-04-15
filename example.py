@@ -1,4 +1,4 @@
-"""Example: full end-to-end ingest + research pipeline with measurement probes."""
+"""Example: full end-to-end ingest + research pipeline with evaluation probes."""
 
 import asyncio
 import sys

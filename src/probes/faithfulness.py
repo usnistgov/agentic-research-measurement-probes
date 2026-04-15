@@ -1,4 +1,4 @@
-"""Citation faithfulness measurement probe.
+"""Citation faithfulness evaluation probe.
 
 Extracts every [^N] citation from a written section, resolves the cited
 source chunk, and asks an LM judge whether the source actually supports

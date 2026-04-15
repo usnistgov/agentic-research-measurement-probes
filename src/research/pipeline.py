@@ -254,9 +254,9 @@ async def run_research_pipeline(
         )
         await emit("section_complete", "section_writer", {"section_title": section_plan.section_title, "order": section_plan.order, "citations_used": section_result.citations_used})
         if verbose:
-            print(f"    Section '{section_plan.section_title}' written. Starting measurement probes...")
+            print(f"    Section '{section_plan.section_title}' written. Starting evaluation probes...")
 
-        # ============ MEASUREMENT PROBE HOOK ============
+        # ============ EVALUATION PROBE HOOK ============
         await emit("probe_start", "probes", {"section_title": section_plan.section_title, "order": section_plan.order})
 
         async def _probe_event(event_type: str, data: dict) -> None:

@@ -1,4 +1,4 @@
-"""Citation completeness measurement probe.
+"""Citation completeness evaluation probe.
 
 Evaluates the Representational Delta between each cited source passage and
 the text that cites it. Unlike the faithfulness probe (which checks whether

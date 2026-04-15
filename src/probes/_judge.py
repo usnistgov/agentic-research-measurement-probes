@@ -1,4 +1,4 @@
-"""Shared LM-judge calling infrastructure for measurement probes."""
+"""Shared LM-judge calling infrastructure for evaluation probes."""
 
 from __future__ import annotations
 
