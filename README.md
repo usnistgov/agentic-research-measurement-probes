@@ -1,19 +1,19 @@
 # Open Deep Research
 
-An **agentic AI measurement tool** for deep research over **local corpora of PDF and Markdown documents**. Given a research question, it orchestrates a programmatic AI pipeline to exhaustively evaluate, synthesize, and verify information from your documents, producing a **Markdown report with inline footnote citations** -- then automatically measures the quality of every citation using **LM-judge measurement probes**.
+An **agentic AI tool** for running and evaluating deep research over **local corpora of PDF and Markdown documents**. Given a research question, it orchestrates a programmatic AI pipeline to exhaustively evaluate, synthesize, and verify information from your documents, producing a **Markdown report with inline footnote citations** -- then automatically assesses the quality of every cited claim using **LM-judge evaluation probes**.
 
-The probes are a first-class feature, not an afterthought. After each report section is written, three mutually exclusive probe evaluators run automatically, scoring every citation along distinct quality dimensions: **faithfulness** (does the source support the claim?), **completeness** (is the source's full message represented without cherry-picking?), and **sufficiency** (does the source carry the evidentiary burden the claim requires, or does the author overreach?). Probe results are stored alongside the report as a structured audit trail, enabling quantitative measurement of AI-generated research quality.
+The probes are a first-class feature, not an afterthought. After each report section is written, three evaluation probes run automatically, scoring every citation along largely orthogonal quality dimensions: **faithfulness** (does the source support the claim?), **completeness** (is the source's full message represented without cherry-picking?), and **sufficiency** (does the source carry the evidentiary burden the claim requires, or does the author overreach?). Probe results are stored alongside the report as a structured audit trail that sheds light on the quality of AI-generated deep research results.
 
-This makes Open Deep Research useful not just as a research assistant, but as a **platform for AI measurement science** -- studying how well LLMs synthesize, cite, and represent evidence from a grounded document corpus.
+Open Deep Research is thus useful not just as a research assistant, but potentially as a **platform for studying AI performance** -- how well LLMs synthesize, cite, and represent evidence from a grounded document corpus. With additional work to validate the probes, rubrics, and LM-judge performance, the package could provide a **measurement platform** for quantifying how well AI agents synthesize information and make decisions.
 
-Built on the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python), it works with any OpenAI-compatible API endpoint (OpenAI, Ollama, vLLM, or other self-hosted model servers).
+Built on the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python), the package works with any OpenAI-compatible API endpoint (OpenAI, Ollama, vLLM, or other self-hosted model servers).
 
 ## How It Works
 
 Open Deep Research follows a two-step workflow:
 
 1. **Ingest** -- Parse your documents (PDF/Markdown), split them into searchable chunks, and persist them.
-2. **Research** -- Ask a question. A programmatic pipeline decomposes it into sub-questions, exhaustively evaluates every corpus chunk, synthesizes a cited report, and scores each section with measurement probes.
+2. **Research** -- Ask a question. A programmatic pipeline decomposes it into sub-questions, exhaustively evaluates every corpus chunk, synthesizes a report with citations, and scores each section with evaluation probes.
 
 ### Pipeline Architecture
 
@@ -41,7 +41,7 @@ The system uses a **programmatic pipeline** (not LLM-driven handoffs) for reliab
 +--------+---------+
          |
 +--------v---------+
-| Measurement      |  LM-judge probes run after each section:
+| Evaluation       |  LM-judge probes run after each section:
 | Probes           |  faithfulness, completeness, sufficiency
 +------------------+
 ```
@@ -50,7 +50,7 @@ The system uses a **programmatic pipeline** (not LLM-driven handoffs) for reliab
 - **Exhaustive Scanner** -- Evaluates every chunk in the corpus against all sub-questions using batched concurrent LLM calls. Guarantees complete coverage: no chunk is skipped. Produces one `Finding` per relevant chunk with structured relevance judgments. Optionally pre-filters chunks via BM25 scoring to speed up debugging runs.
 - **Synthesis Manager** -- Reviews all accumulated evidence and citations, then plans the report outline (3-7 sections) via `submit_outline`, assigning specific citation IDs to each section.
 - **Section Writers** -- Each section is written independently with its assigned evidence serialized as JSON. Writers use `[^N]` footnote citations and receive prior sections for context continuity.
-- **Measurement Probes** -- LM-judge evaluators run automatically after each section is written, scoring citation quality along three dimensions: faithfulness (does the source support the claim?), completeness (is the source's full message represented?), and sufficiency (does the source carry the burden of proof the claim requires?). Results are stored on each section and in the audit trail.
+- **Evaluation Probes** -- LM-judge evaluators run automatically after each section is written, scoring citation quality along three dimensions: faithfulness (does the source support the claim?), completeness (is the source's full message represented?), and sufficiency (does the source carry the burden of proof the claim requires?). Results are stored on each section and in the audit trail.
 
 All agents share a `ResearchContext` containing immutable `ResearchInfrastructure` (document store, citation tracker, OpenAI client) and mutable `ResearchState` (sub-questions, evidence, outline, section results). Context is threaded through all tool calls via the SDK's `RunContextWrapper`.
 
@@ -226,11 +226,11 @@ All artifacts are stored in a `ldr_index/` directory inside the corpus directory
 | `report_outline.md` | Markdown | Report outline with section plans and assigned citation IDs |
 | `section_prompt_N.md` | Markdown | Per-section writer prompt for human review (one file per section) |
 
-## Measurement Probes
+## Evaluation Probes
 
-After each section is written, measurement probes run automatically as LM-judge evaluators. Each probe is registered via `@register_probe` in `probes/` and called by the dispatcher in `probes/__init__.py`.
+After each section is written, evaluation probes run automatically as LM-judge evaluators. Each probe is registered via `@register_probe` in `probes/` and called by the dispatcher in `probes/__init__.py`.
 
-Three probes are implemented, covering mutually exclusive dimensions of citation quality:
+Three probes are implemented, covering largely orthogonal dimensions of citation quality:
 
 | Probe | Module | Question |
 |---|---|---|
